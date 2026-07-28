@@ -1,0 +1,7 @@
+allowBuilds:
+  '@prisma/engines': true
+  # Analytics-only postinstall — deliberately not run.
+  '@scarf/scarf': false
+  esbuild: true
+  prisma: true
+  unrs-resolver: true

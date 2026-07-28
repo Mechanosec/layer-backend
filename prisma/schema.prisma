@@ -1,0 +1,266 @@
+// Layer service schema.
+//
+// The service consumes stock events from Business Central over Kafka, keeps a
+// per-shop picture of stock, and derives the quantity exposed to e-com:
+//
+//   ecom = sum(stock in ecom-enabled shops of the region) - safetyBuffer - qty reserved by NEW orders
+//
+// The first two terms live here; reservations are read from e-com over its API.
+// See src/modules/stock/services/stock.calculate.service.ts for the formula.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  // Nest compiles to CommonJS; the default ESM output uses `import.meta`, which
+  // ts-jest cannot load.
+  moduleFormat = "cjs"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A Business Central region. Shops are grouped into regions and the e-com
+/// stock of a variant is calculated per region.
+model Region {
+  id     String @id @default(uuid()) @db.Uuid
+  /// Region code as it appears in Business Central.
+  bcCode String @unique
+  name   String
+
+  /// Units held back from e-com so in-store sales cannot oversell the channel.
+  safetyBuffer Int @default(0)
+
+  shops              Shop[]
+  ecomStocks         EcomStock[]
+  recalculationTasks StockRecalculationTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// A physical shop. `code` is the BC `shopCode` carried by every event.
+model Shop {
+  code String  @id
+  name String?
+
+  /// Every shop belongs to a region; shops BC has not mapped yet land in the
+  /// `UNASSIGNED` region (see UNASSIGNED_REGION_CODE) so the calculation never
+  /// has to deal with a null region.
+  regionId String @db.Uuid
+  region   Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  /// Whether this shop's stock feeds the e-com calculation
+  /// ("обрані магазини регіона" in the manager's formula).
+  includedInEcom Boolean @default(true)
+
+  stocks ShopStock[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([regionId])
+}
+
+/// Product-level attributes, shared by all variants of a SKU.
+model Product {
+  sku      String  @id
+  name     String
+  category String?
+  brand    String?
+
+  variants ProductVariant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// A concrete sellable item: SKU + BC variant code (colour/size live in `metadata`).
+model ProductVariant {
+  id String @id @default(uuid()) @db.Uuid
+
+  sku     String
+  product Product @relation(fields: [sku], references: [sku], onDelete: Cascade)
+
+  /// BC `variantCode`, e.g. "000".
+  variantCode String
+  /// Raw BC descriptor, e.g. "ЧОРНО-БІЛИЙ (вимк)/37".
+  metadata    String?
+  /// BC `unitMeasure`, e.g. "ПАР".
+  unitMeasure String?
+  price       Decimal? @db.Decimal(14, 2)
+
+  customCategoryCode            String?
+  customCategoryCodeDescription String?
+
+  stocks             ShopStock[]
+  ecomStocks         EcomStock[]
+  recalculationTasks StockRecalculationTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sku, variantCode])
+  @@index([sku])
+}
+
+/// Stock of one variant in one shop — the source of truth fed by BC events.
+model ShopStock {
+  variantId String         @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  shopCode String
+  shop     Shop   @relation(fields: [shopCode], references: [code], onDelete: Cascade)
+
+  quantity Int @default(0)
+
+  /// When BC last reported this quantity.
+  reportedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@id([variantId, shopCode])
+  @@index([shopCode])
+}
+
+/// The calculated quantity published to e-com, with the inputs kept for audit.
+model EcomStock {
+  id String @id @default(uuid()) @db.Uuid
+
+  variantId String         @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  regionId String @db.Uuid
+  region   Region @relation(fields: [regionId], references: [id], onDelete: Cascade)
+
+  /// Final number sent to e-com (never negative).
+  quantity Int
+
+  // Formula breakdown, so a published number can always be explained.
+  shopsTotal   Int
+  safetyBuffer Int
+  reserved     Int
+
+  /// True when `reserved` is a carried-over value because e-com could not be
+  /// reached. The number is still usable, but it is not known to be current.
+  reservationsStale Boolean @default(false)
+
+  /// The last quantity actually handed to e-com, which is not always `quantity`:
+  /// a result computed without fresh reservations is stored but may be withheld.
+  /// This is the baseline a stale result is compared against, so it must survive
+  /// a withheld write — do not fold it into `quantity`.
+  publishedQuantity Int?
+
+  calculatedAt DateTime  @default(now())
+  /// When the outbox actually delivered `publishedQuantity`.
+  publishedAt  DateTime?
+
+  @@unique([variantId, regionId])
+  @@index([regionId])
+}
+
+// Orders are NOT mirrored here: the "кількість товарів доданих в ордери в
+// статусі «Новий»" term lives in e-com, and is read over its API at calculation
+// time — see src/shared/ecom-api.
+
+enum RecalculationTaskStatus {
+  PENDING
+  DONE
+  /// Gave up after MAX_ATTEMPTS; needs someone to look at `lastError`.
+  ABANDONED
+}
+
+/// A variant/region pair whose calculation could not be completed — almost
+/// always because e-com was unreachable when its reservations were needed.
+///
+/// One row per pair (repeated failures collapse into it), drained by
+/// StockRetryRecalculationService.
+model StockRecalculationTask {
+  id String @id @default(uuid()) @db.Uuid
+
+  variantId String         @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  regionId String @db.Uuid
+  region   Region @relation(fields: [regionId], references: [id], onDelete: Cascade)
+
+  // Denormalised so a retry needs no joins to rebuild the target.
+  sku         String
+  variantCode String
+  regionCode  String
+
+  status   RecalculationTaskStatus @default(PENDING)
+  reason   String
+  attempts Int                     @default(0)
+
+  lastError   String?
+  lastTriedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([variantId, regionId])
+  @@index([status, updatedAt])
+}
+
+enum BcEventType {
+  /// Full snapshot: absolute quantity for a variant in a shop.
+  GLOBAL
+  /// Incremental change: `quantityDelta` for a variant in a shop.
+  UNIT
+}
+
+enum BcEventStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+/// Inbox of raw BC messages. Doubles as the idempotency guard: the
+/// (topic, partition, offset) key makes redelivery a no-op.
+model BcEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  type   BcEventType
+  status BcEventStatus @default(PENDING)
+
+  topic     String
+  partition Int
+  offset    BigInt
+  key       String?
+  payload   Json
+
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  error       String?
+
+  @@unique([topic, partition, offset])
+  @@index([status])
+}
+
+enum OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+/// Outbox of stock updates for e-com. Writing it in the same transaction as
+/// the calculation means a publish can never silently go missing.
+model EcomStockOutbox {
+  id String @id @default(uuid()) @db.Uuid
+
+  sku         String
+  variantCode String
+  variantId   String @db.Uuid
+  regionCode  String
+  quantity    Int
+
+  status    OutboxStatus @default(PENDING)
+  attempts  Int          @default(0)
+  lastError String?
+
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  @@index([status, createdAt])
+}

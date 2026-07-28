@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Keeps the emitted layout at dist/main.js. Without it tsc infers the common
+    // root from prisma/seed.ts as well and emits dist/src/main.js.
+    "rootDir": "./src",
+    // Inside dist so `deleteOutDir` invalidates it too; left at the repo root,
+    // an incremental build after a wiped dist emits nothing.
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+}

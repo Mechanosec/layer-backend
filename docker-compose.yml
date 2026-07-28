@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: layer-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-layer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-layer}
+      POSTGRES_DB: ${POSTGRES_DB:-layer}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-layer} -d ${POSTGRES_DB:-layer}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:4.0.0
+    container_name: layer-kafka
+    restart: unless-stopped
+    ports:
+      # HOST listener — for the app running on the host machine
+      - '${KAFKA_PORT:-9092}:9092'
+    environment:
+      # Single-node KRaft: this one node is both broker and controller.
+      CLUSTER_ID: layer-local-cluster
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: HOST://0.0.0.0:9092,DOCKER://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      # HOST is what a process on the host connects to; DOCKER is for sibling containers.
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:${KAFKA_PORT:-9092},DOCKER://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,DOCKER:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1',
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  pgdata:
+  kafkadata:
