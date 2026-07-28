@@ -18,7 +18,7 @@
 set -euo pipefail
 
 BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VISUALIZER_DIR="$(cd "$BACKEND_DIR/.." && pwd)/layer-visualizer"
+VISUALIZER_DIR="$BACKEND_DIR/visualizer"
 LOG_DIR="$BACKEND_DIR/.demo-logs"
 
 LAYER_PORT=3000
@@ -165,8 +165,7 @@ command -v node >/dev/null || fail 'Не знайшов node. Потрібен N
 command -v pnpm >/dev/null || fail 'Не знайшов pnpm. Встановити: npm i -g pnpm'
 command -v curl >/dev/null || fail 'Не знайшов curl.'
 
-[[ -d "$VISUALIZER_DIR" ]] ||
-  fail "Не знайшов layer-visualizer поряд із layer-backend (шукав $VISUALIZER_DIR)"
+[[ -d "$VISUALIZER_DIR" ]] || fail "Не знайшов папку visualizer (шукав $VISUALIZER_DIR)"
 
 # docker-compose тут може говорити і з Docker, і з Podman.
 COMPOSE=()
@@ -213,8 +212,8 @@ if ((INSTALL_DEPS)); then
   step 'Встановлюю залежності'
   (cd "$BACKEND_DIR" && pnpm install --silent) || fail 'pnpm install у layer-backend не вдався'
   ok 'layer-backend'
-  (cd "$VISUALIZER_DIR" && pnpm install --silent) || fail 'pnpm install у layer-visualizer не вдався'
-  ok 'layer-visualizer'
+  (cd "$VISUALIZER_DIR" && pnpm install --silent) || fail 'pnpm install у visualizer не вдався'
+  ok 'visualizer'
 fi
 
 # ── 2. Postgres і Kafka ───────────────────────────────────────────────────────

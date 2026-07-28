@@ -1,0 +1,131 @@
+@import 'tailwindcss';
+
+@import '@fontsource/ibm-plex-sans/cyrillic-400.css';
+@import '@fontsource/ibm-plex-sans/cyrillic-500.css';
+@import '@fontsource/ibm-plex-sans/latin-400.css';
+@import '@fontsource/ibm-plex-sans/latin-500.css';
+@import '@fontsource/ibm-plex-mono/cyrillic-400.css';
+@import '@fontsource/ibm-plex-mono/cyrillic-500.css';
+@import '@fontsource/ibm-plex-mono/cyrillic-600.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+
+@theme {
+  /* The workbench the conveyor runs on. */
+  --color-stage: #1b2328;
+  --color-stage-raised: #232d34;
+  --color-stage-line: #34424b;
+  --color-stage-ink: #e8eef1;
+  --color-stage-muted: #8fa3ae;
+
+  /* Paper, used only where something really is paper: the calculation tape. */
+  --color-paper: #f2ede2;
+  --color-paper-line: #d6cdba;
+  --color-ink: #14171a;
+  --color-ink-muted: #6c6a62;
+
+  --color-accent: #3f5fc4;
+  --color-flow: #2fb99c;
+  --color-warn: #d9971f;
+  --color-stop: #c9453a;
+
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-stage);
+    color: var(--color-stage-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-flow);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Numbers are read in columns all over this page, so they must not jitter. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+ * The pulse that travels the conveyor when an event is sent. Each stage sets its
+ * own delay, so one send reads as a single object moving down the line rather
+ * than six things blinking at once.
+ */
+@keyframes stage-receive {
+  0% {
+    border-color: var(--color-stage-line);
+  }
+  18% {
+    border-color: var(--color-flow);
+    background-color: color-mix(
+      in oklab,
+      var(--color-flow) 20%,
+      var(--color-stage-raised)
+    );
+  }
+  100% {
+    border-color: var(--color-stage-line);
+  }
+}
+
+@keyframes link-travel {
+  0% {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+.stage-pulse {
+  animation: stage-receive 1s ease-out both;
+}
+
+.link-pulse {
+  transform-origin: left center;
+  animation: link-travel 0.45s linear both;
+}
+
+/* The torn edge of the receipt tape, top and bottom. */
+.tape-edge {
+  --tooth: 10px;
+  height: calc(var(--tooth) / 2);
+  background-color: var(--color-paper);
+  mask-image: radial-gradient(
+    calc(var(--tooth) / 2) calc(var(--tooth) / 2) at 50% 0,
+    transparent 98%,
+    black 100%
+  );
+  mask-size: var(--tooth) 100%;
+  mask-repeat: repeat-x;
+}
+
+.tape-edge-top {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-pulse,
+  .link-pulse {
+    animation: none;
+  }
+}
