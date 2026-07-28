@@ -28,9 +28,10 @@ Business Central ──▶ Kafka ──▶ layer ──▶ Postgres
    > decides, delete the branches that are left unused.
 
 2. **Apply.** A product message upserts the catalogue and touches no stock. A stock message
-   sets each variant/warehouse quantity — replacing it for an absolute value, adjusting it for
-   a delta, clamped at zero. Shops and products BC has not described yet are created on the
-   fly, so an unmapped shop delays e-com visibility instead of dropping the event.
+   sets each variant/warehouse quantity — replacing it for an absolute value, adjusting it in
+   a single statement for a delta, clamped at zero. Shops and products BC has not described
+   yet are created on the fly; an unmapped warehouse is created **excluded from e-com**, so
+   its stock is kept but nothing is published under the placeholder region.
 
 3. **Calculate.** For the affected variant and region:
 
@@ -60,8 +61,10 @@ invites overselling. So instead:
 
 - The last known `reserved` is carried over and the result is flagged `reservationsStale`.
 - The pair is recorded in `StockRecalculationTask`, and `StockRetryRecalculationService`
-  re-runs it every 30s until e-com answers. Stock catches up on its own, with nobody
-  replaying BC events.
+  re-runs it every 30s — for up to `RECALCULATION.MAX_ATTEMPTS` (10) attempts, so about
+  five minutes. Stock catches up on its own, with nobody replaying BC events. Ordinary BC
+  traffic does **not** reset that counter: if it did, the busiest SKUs would never abandon
+  and never surface as degraded.
 - A stale result is published **only if it does not raise** what e-com may sell. A drop in
   shop stock still propagates; an increase waits for real data. The comparison is against
   `EcomStock.publishedQuantity` (what e-com actually holds), not against the last computed

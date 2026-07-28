@@ -58,25 +58,33 @@ export class StockApplyStockService {
     const variant = await this.variantRepository.ensureForStock(
       sku,
       line.variantCode,
-      { barcodeNo: line.barcodeNo, price: line.price },
       tx,
     );
     const shop = await this.shopResolver.resolve(line.shopCode, tx);
 
-    const quantity = await this.resolveQuantity(
-      sku,
-      variant.id,
-      shop.code,
-      line,
-      tx,
-    );
+    if (line.quantity !== undefined) {
+      if (line.quantity < 0) {
+        this.logger.warn(
+          `[${StockApplyStockService.name}]BC reported a negative stock of ${line.quantity} for ${sku}/${line.variantCode} at ${shop.code}; clamping to 0`,
+        );
+      }
 
-    await this.shopStockRepository.setQuantity(
-      variant.id,
-      shop.code,
-      quantity,
-      tx,
-    );
+      await this.shopStockRepository.setQuantity(
+        variant.id,
+        shop.code,
+        Math.max(0, line.quantity),
+        tx,
+      );
+    } else {
+      // Read-modify-write in application code loses concurrent deltas, so the
+      // adjustment is pushed into a single statement.
+      await this.shopStockRepository.adjustQuantity(
+        variant.id,
+        shop.code,
+        line.quantityDelta ?? 0,
+        tx,
+      );
+    }
 
     return {
       variantId: variant.id,
@@ -85,36 +93,5 @@ export class StockApplyStockService {
       regionId: shop.regionId,
       regionCode: shop.regionCode,
     };
-  }
-
-  private async resolveQuantity(
-    sku: string,
-    variantId: string,
-    shopCode: string,
-    line: StockLine,
-    tx: TransactionClient,
-  ): Promise<number> {
-    if (line.quantity !== undefined) {
-      if (line.quantity < 0) {
-        this.logger.warn(
-          `[${StockApplyStockService.name}]BC reported a negative stock of ${line.quantity} for ${sku}/${line.variantCode} at ${shopCode}; clamping to 0`,
-        );
-      }
-
-      return Math.max(0, line.quantity);
-    }
-
-    const current =
-      (await this.shopStockRepository.findQuantity(variantId, shopCode, tx)) ??
-      0;
-    const next = current + (line.quantityDelta ?? 0);
-
-    if (next < 0) {
-      this.logger.warn(
-        `[${StockApplyStockService.name}]Delta ${line.quantityDelta} would take ${sku}/${line.variantCode} at ${shopCode} to ${next}; clamping to 0`,
-      );
-    }
-
-    return Math.max(0, next);
   }
 }

@@ -139,11 +139,24 @@ Therefore:
   `EcomApiUnavailableError`, and the caller carries the last known value over, flags
   `reservationsStale`, and records a retry task.
 - **`EcomStock.publishedQuantity` is not the same as `quantity`.** `quantity` is the last
-  computed value; `publishedQuantity` is what e-com actually holds. A stale result is only
-  published if it does not exceed `publishedQuantity`, so folding the two together silently
-  breaks the withholding rule — a previously withheld number would become the baseline.
+  computed value; `publishedQuantity` is the last one committed to the outbox (written at
+  enqueue, not on delivery). A stale result is only published if it does not exceed
+  `publishedQuantity`, so folding the two together silently breaks the withholding rule — a
+  previously withheld number would become the baseline.
+- **Never coerce the e-com reservations response.** `ecom-api/dto` has no
+  `@Type(() => Number)` and the caller does not enable implicit conversion, because with it
+  `{"reserved": ""}` and `{"reserved": false}` become a confident `0` — the overselling path
+  the validation exists to prevent. Same reason `null` counts as absent in
+  `toStockCommand`: `@IsOptional()` skips `null`, so it would arrive looking like data.
+- **An unmapped warehouse is created excluded from e-com.** Failing open would publish a
+  phantom `UNASSIGNED` region and offer its whole stock for sale.
+- **A stock message never writes master data.** `barcodeNo` and `price` are accepted by the
+  DTO and discarded; the catalogue message owns them. A second writer on `barcodeNo` would
+  let a reused EAN roll back a whole batch of quantities.
 - The reservations response shape in `ecom-api/dto` is an **assumed contract** and is
   validated, so a changed API fails loudly instead of degrading into `reserved = 0`.
+- Ordinary BC traffic must not reset `StockRecalculationTask.attempts` — if it does, the
+  busiest SKUs never abandon and `/health` never reports degraded during an e-com outage.
 - `regionCode` is sent with the reservations query, but it is **not settled** whether an e-com
   order reserves from one BC region or across all of them. If e-com ignores the parameter, the
   same reservation is subtracted from every region a variant lives in.

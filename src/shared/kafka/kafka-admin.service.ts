@@ -50,18 +50,30 @@ export class KafkaAdminService {
       );
 
       if (missing.length > 0) {
-        await admin.createTopics({
-          topics: missing.map((topic) => ({
-            topic,
-            numPartitions: KafkaAdminService.PARTITIONS,
-            replicationFactor: KafkaAdminService.REPLICATION_FACTOR,
-          })),
-          waitForLeaders: true,
-        });
+        try {
+          await admin.createTopics({
+            topics: missing.map((topic) => ({
+              topic,
+              numPartitions: KafkaAdminService.PARTITIONS,
+              replicationFactor: KafkaAdminService.REPLICATION_FACTOR,
+            })),
+            waitForLeaders: true,
+          });
 
-        this.logger.info(
-          `[${KafkaAdminService.name}]Created topic(s): ${missing.join(', ')}`,
-        );
+          this.logger.info(
+            `[${KafkaAdminService.name}]Created topic(s): ${missing.join(', ')}`,
+          );
+        } catch (error) {
+          // Two instances booting together race here. Losing that race is fine —
+          // the topic exists, which is all this method is for. Anything else is not.
+          if (!isAlreadyExists(error)) {
+            throw error;
+          }
+
+          this.logger.info(
+            `[${KafkaAdminService.name}]Topic(s) already created by another instance`,
+          );
+        }
       }
 
       // `waitForLeaders` is not enough on a freshly created topic: the consumer
@@ -103,4 +115,12 @@ export class KafkaAdminService {
       `[${KafkaAdminService.name}]Some partitions still have no leader; the consumer may fail to subscribe`,
     );
   }
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'KafkaJSTopicAlreadyExists' ||
+      /already exists/i.test(error.message))
+  );
 }

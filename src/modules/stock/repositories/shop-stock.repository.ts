@@ -39,6 +39,32 @@ export class ShopStockRepository extends BaseRepository {
     });
   }
 
+  /**
+   * Applies a signed change in one statement, so two concurrent deltas for the
+   * same pair cannot lose each other the way a read-then-write would. The clamp
+   * is a second statement: `increment` cannot express GREATEST(0, ...).
+   */
+  public async adjustQuantity(
+    variantId: string,
+    shopCode: string,
+    delta: number,
+    tx?: TransactionClient,
+  ): Promise<void> {
+    const client = this.client(tx);
+    const reportedAt = new Date();
+
+    await client.shopStock.upsert({
+      where: { variantId_shopCode: { variantId, shopCode } },
+      create: { variantId, shopCode, quantity: Math.max(0, delta), reportedAt },
+      update: { quantity: { increment: delta }, reportedAt },
+    });
+
+    await client.shopStock.updateMany({
+      where: { variantId, shopCode, quantity: { lt: 0 } },
+      data: { quantity: 0 },
+    });
+  }
+
   /** Total held by the shops of a region that feed e-com. */
   public async sumForRegion(
     variantId: string,

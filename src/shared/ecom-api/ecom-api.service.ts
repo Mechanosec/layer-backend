@@ -71,9 +71,18 @@ export class EcomApiService {
     }
 
     const body: unknown = await response.json();
-    const dto = plainToInstance(EcomReservationResponseDto, body, {
-      enableImplicitConversion: true,
-    });
+
+    // An array or a scalar would otherwise be shaped into an object whose
+    // `reserved` is undefined, and that reaches the formula as NaN.
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error(
+        `unexpected response body: expected an object, got ${Array.isArray(body) ? 'an array' : typeof body}`,
+      );
+    }
+
+    // No implicit conversion on purpose — see the DTO. Coercion here is what
+    // turns "" and false into a confident `reserved = 0`.
+    const dto = plainToInstance(EcomReservationResponseDto, body);
     const errors = validateSync(dto, { forbidUnknownValues: false });
 
     if (errors.length > 0) {

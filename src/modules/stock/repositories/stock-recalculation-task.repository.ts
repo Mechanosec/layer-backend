@@ -19,22 +19,28 @@ export class StockRecalculationTaskRepository extends BaseRepository {
    * Marks a variant/region pair as needing calculation.
    *
    * One row per pair, so a burst of events for the same variant coalesces into a
-   * single outstanding calculation instead of queueing ten of them. New work
-   * resets the attempt count, which also revives an ABANDONED pair.
+   * single outstanding calculation instead of queueing ten of them.
+   *
+   * The attempt count is **not** reset by ordinary BC traffic. Resetting it there
+   * means any variant BC touches more often than the retry interval never reaches
+   * MAX_ATTEMPTS, never abandons, and never shows up as degraded — so the busiest
+   * SKUs would be exactly the ones that stay silently stale through an e-com
+   * outage. Only an explicit manual request clears it.
    */
   public async enqueue(
     target: StockTarget,
     reason: ERecalculationReason,
     tx?: TransactionClient,
   ): Promise<StockRecalculationTask> {
+    const isManual = reason === ERecalculationReason.ManualRequest;
+
     return this.client(tx).stockRecalculationTask.upsert({
       where: this.identity(target),
       create: { ...this.identityFields(target), reason },
       update: {
         reason,
         status: RecalculationTaskStatus.PENDING,
-        attempts: 0,
-        lastError: null,
+        ...(isManual ? { attempts: 0, lastError: null } : {}),
       },
     });
   }

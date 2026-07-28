@@ -46,9 +46,6 @@ export interface StockLine {
   quantity?: number;
   /** Signed change against the stored value. */
   quantityDelta?: number;
-  barcodeNo?: string;
-  /** Reported by the stock message; stored for reference only. */
-  price?: number;
 }
 
 /** A stock message, flattened: one entry per variant/shop pair it touched. */

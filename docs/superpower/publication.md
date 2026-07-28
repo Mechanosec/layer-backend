@@ -14,8 +14,12 @@ Transactional outbox:
 2. After the commit it kicks a drain; a 5s interval is the safety net
 3. `EcomOutboxPublisherService` publishes a batch to `ecom.stock.updated`, keyed
    `sku:variantCode` so a variant's updates keep their order within a partition
-4. On success it marks the rows `SENT` and stamps `EcomStock.publishedAt`; on failure
-   the rows stay `PENDING`, with `attempts` and `lastError` recorded, for the next tick
+4. On success it marks the rows `SENT` and stamps `EcomStock.publishedAt` for the
+   exact `(variantId, regionId)` pairs it delivered — which is why the outbox row
+   carries `regionId`. Stamping by variant alone would mark a variant's other
+   regions as delivered, including ones deliberately withheld
+5. On failure the rows stay `PENDING`, with `attempts` and `lastError` recorded, for
+   the next tick
 
 Topics are created at boot by `KafkaAdminService`. Broker-side auto-creation is lazy,
 and a consumer subscribing to a topic nobody has produced to gets
@@ -25,8 +29,12 @@ and a consumer subscribing to a topic nobody has produced to gets
 
 - **Single writer.** The drain is guarded in-process only. Running more than one
   instance needs a real claim step (`SELECT ... FOR UPDATE SKIP LOCKED`).
-- `publishedQuantity` is written only when a number is actually handed over, so a
-  withheld stale result cannot destroy the comparison baseline.
+- `publishedQuantity` is written when a number is **enqueued**, not when Kafka
+  accepts it — so it is "the last number we committed to sending", not literally
+  what e-com has processed. The outbox preserves order and guarantees delivery, so
+  the gap is bounded by the drain interval. What matters for the withholding rule is
+  that a *withheld* result never touches it, which is what keeps the baseline
+  intact.
 
 ## Related modules
 

@@ -99,7 +99,10 @@ export class EcomOutboxPublisherService
       const sentAt = new Date();
       await this.outboxRepository.markSent(ids, sentAt);
       await this.ecomStockRepository.markPublished(
-        pending.map((row) => row.variantId),
+        pending.map((row) => ({
+          variantId: row.variantId,
+          regionId: row.regionId,
+        })),
         sentAt,
       );
 

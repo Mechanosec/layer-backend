@@ -12,7 +12,13 @@
  *   GET  /_state                                          → current state
  *   PUT  /_state   { "reserved": 4, "mode": "ok" }         → set state
  *
- * Modes: ok | down (503) | slow (never answers in time) | garbage (wrong shape)
+ * Modes:
+ *   ok       — answers with the configured `reserved`
+ *   down     — 503
+ *   slow     — never answers in time
+ *   garbage  — a body of the wrong shape
+ *   coercible — `{"reserved": ""}`: the shape that used to be silently coerced to a
+ *               confident 0. Kept as a mode because it is the dangerous one.
  */
 import { createServer } from 'node:http';
 
@@ -63,9 +69,10 @@ const server = createServer(async (request, response) => {
         return json(response, 400, { error: 'body must be JSON' });
       }
 
-      if (patch.mode && !['ok', 'down', 'slow', 'garbage'].includes(patch.mode)) {
+      const modes = ['ok', 'down', 'slow', 'garbage', 'coercible'];
+      if (patch.mode && !modes.includes(patch.mode)) {
         return json(response, 400, {
-          error: 'mode must be one of ok, down, slow, garbage',
+          error: `mode must be one of ${modes.join(', ')}`,
         });
       }
       if (patch.reserved !== undefined && !Number.isInteger(patch.reserved)) {
@@ -91,6 +98,8 @@ const server = createServer(async (request, response) => {
         return json(response, 503, { error: 'e-com is unavailable' });
       case 'garbage':
         return json(response, 200, { unexpected: 'shape' });
+      case 'coercible':
+        return json(response, 200, { reserved: '' });
       case 'slow':
         setTimeout(
           () => json(response, 200, { sku, variantCode, reserved: state.reserved }),

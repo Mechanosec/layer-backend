@@ -112,7 +112,7 @@ model Product {
   @@index([seasonId])
 }
 
-/// A concrete sellable item: SKU + BC variant code (colour/size live in `metadata`).
+/// A concrete sellable item: SKU + BC variant code, described by colour and size.
 model ProductVariant {
   id String @id @default(uuid()) @db.Uuid
 
@@ -121,16 +121,15 @@ model ProductVariant {
 
   /// BC `variantCode`, e.g. "000".
   variantCode String
-  /// EAN from BC. Unique across the catalogue, so it can be looked up on its own.
-  barcodeNo   String? @unique
+  /// EAN as reported by the catalogue message. Deliberately NOT globally unique:
+  /// nothing looks a variant up by barcode, and a reused or corrected EAN would
+  /// otherwise raise a constraint violation inside the apply transaction and
+  /// freeze that SKU's quantities.
+  barcodeNo   String?
 
   // BC describes a variant by colour and size rather than one free-text string.
   color String?
   size  String?
-
-  /// Price as reported for this variant by the stock message. Falls back to
-  /// `Product.price` from the catalogue message when absent.
-  price Decimal? @db.Decimal(14, 2)
 
   stocks             ShopStock[]
   ecomStocks         EcomStock[]
@@ -141,6 +140,7 @@ model ProductVariant {
 
   @@unique([sku, variantCode])
   @@index([sku])
+  @@index([barcodeNo])
 }
 
 /// Stock of one variant in one shop — the source of truth fed by BC events.
@@ -290,6 +290,9 @@ model EcomStockOutbox {
   sku         String
   variantCode String
   variantId   String @db.Uuid
+  /// Kept alongside `regionCode` so the publisher can stamp delivery on exactly
+  /// the (variant, region) pair it delivered.
+  regionId    String @db.Uuid
   regionCode  String
   quantity    Int
 

@@ -25,6 +25,7 @@ export class EcomStockOutboxRepository extends BaseRepository {
         sku: target.sku,
         variantCode: target.variantCode,
         variantId: target.variantId,
+        regionId: target.regionId,
         regionCode: target.regionCode,
         quantity,
       },

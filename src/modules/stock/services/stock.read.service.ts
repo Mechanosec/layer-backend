@@ -34,8 +34,8 @@ export class StockReadService {
         barcodeNo: variant.barcodeNo,
         color: variant.color,
         size: variant.size,
-        // Falls back to the catalogue price when the stock message did not carry one.
-        price: (variant.price ?? product.price)?.toString() ?? null,
+        // The catalogue message owns the price; a stock message never writes it.
+        price: product.price?.toString() ?? null,
         shops: variant.stocks.map((stock) => ({
           shopCode: stock.shopCode,
           shopName: stock.shop.name,

@@ -158,27 +158,23 @@ describe(BcEventsService.name, () => {
       const command = lastStockCommand(stockService);
 
       expect(command.sku).toBe('200202');
+      // barcodeNo and price are accepted by the DTO but deliberately dropped:
+      // the catalogue message owns master data.
       expect(command.lines).toEqual([
         {
           variantCode: '000',
-          barcodeNo: '770662476000',
-          price: 699,
           shopCode: '0119',
           quantity: 10,
           quantityDelta: undefined,
         },
         {
           variantCode: '000',
-          barcodeNo: '770662476000',
-          price: 699,
           shopCode: '0120',
           quantity: 4,
           quantityDelta: undefined,
         },
         {
           variantCode: '001',
-          barcodeNo: undefined,
-          price: undefined,
           shopCode: '0119',
           quantity: 7,
           quantityDelta: undefined,
@@ -208,8 +204,6 @@ describe(BcEventsService.name, () => {
       expect(lastStockCommand(stockService).lines).toEqual([
         {
           variantCode: '000',
-          barcodeNo: '770662476000',
-          price: 699,
           shopCode: '0119',
           quantity: 10,
           quantityDelta: undefined,
@@ -249,6 +243,94 @@ describe(BcEventsService.name, () => {
           META,
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should treat null as absent and reject the line, not apply it as zero', async () => {
+      const { service } = buildService();
+
+      // A producer emitting the unused field as null rather than omitting it
+      // would otherwise land as an absolute 0 and wipe the warehouse.
+      await expect(
+        service.ingestStock(
+          {
+            sku: '200202',
+            warehouseCode: '0119',
+            variants: [{ variantCode: '000', quantity: null }],
+          },
+          META,
+        ),
+      ).rejects.toThrow(/neither quantity nor quantityDelta/);
+    });
+
+    it('should prefer neither when null sits next to a real delta', async () => {
+      const { service, stockService } = buildService();
+
+      await service.ingestStock(
+        {
+          sku: '200202',
+          warehouseCode: '0119',
+          variants: [{ variantCode: '000', quantity: null, quantityDelta: -3 }],
+        },
+        META,
+      );
+
+      expect(lastStockCommand(stockService).lines[0]).toMatchObject({
+        quantity: undefined,
+        quantityDelta: -3,
+      });
+    });
+
+    it('should keep an explicit zero, which is a real stock level', async () => {
+      const { service, stockService } = buildService();
+
+      await service.ingestStock(
+        {
+          sku: '200202',
+          warehouseCode: '0119',
+          variants: [{ variantCode: '000', quantity: 0 }],
+        },
+        META,
+      );
+
+      expect(lastStockCommand(stockService).lines[0]).toMatchObject({
+        quantity: 0,
+      });
+    });
+
+    it('should reject a line carrying both an absolute quantity and a delta', async () => {
+      const { service } = buildService();
+
+      await expect(
+        service.ingestStock(
+          {
+            sku: '200202',
+            warehouseCode: '0119',
+            variants: [{ variantCode: '000', quantity: 10, quantityDelta: -3 }],
+          },
+          META,
+        ),
+      ).rejects.toThrow(/both quantity and quantityDelta/);
+    });
+
+    it('should reject a variant mixing the nested and single-warehouse shapes', async () => {
+      const { service } = buildService();
+
+      await expect(
+        service.ingestStock(
+          {
+            sku: '200202',
+            warehouseCode: '0119',
+            variants: [
+              {
+                variantCode: '000',
+                quantity: 5,
+                warehouses: [{ warehouseCode: '0120', quantity: 3 }],
+              },
+            ],
+          },
+          META,
+        ),
+      ).rejects.toThrow(/both warehouses\[\] and a bare quantity/);
     });
 
     it('should reject a line that names a warehouse but no number at all', async () => {

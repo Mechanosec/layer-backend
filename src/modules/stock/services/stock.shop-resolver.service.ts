@@ -12,9 +12,11 @@ import { ShopRepository } from '../repositories/shop.repository';
 import { ResolvedShop } from '../types/stock.type';
 
 /**
- * Business Central events carry a bare `shopCode`. Shops the service has not
- * seen before are created on the spot and parked in the UNASSIGNED region, so an
- * unmapped shop delays e-com visibility instead of dropping the event.
+ * Business Central events carry a bare `warehouseCode`. Shops the service has not
+ * seen before are created on the spot and parked in the UNASSIGNED region, and
+ * marked as not feeding e-com — so the stock is kept, but nothing is published
+ * for a region that does not exist. That genuinely delays e-com visibility
+ * instead of either dropping the event or publishing a phantom region.
  */
 @Injectable()
 export class StockShopResolverService {
@@ -46,7 +48,7 @@ export class StockShopResolverService {
       `[${StockShopResolverService.name}]Unknown shop ${shopCode}; created it in region ${region.bcCode}`,
     );
 
-    return this.shopRepository.create(
+    return this.shopRepository.ensureUnmapped(
       { code: shopCode, regionId: region.id },
       tx,
     );

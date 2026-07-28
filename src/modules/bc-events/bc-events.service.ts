@@ -98,20 +98,23 @@ function toStockCommand(dto: BcStockEventDto): StockUpdateCommand {
   const lines: StockLine[] = [];
 
   for (const variant of dto.variants) {
-    const shared = {
-      variantCode: variant.variantCode,
-      barcodeNo: variant.barcodeNo,
-      price: variant.price,
-    };
+    const shared = { variantCode: variant.variantCode };
+    const nested = variant.warehouses ?? [];
+    const hasBareNumber =
+      present(variant.quantity) || present(variant.quantityDelta);
 
-    if (variant.warehouses && variant.warehouses.length > 0) {
-      for (const warehouse of variant.warehouses) {
-        lines.push({
-          ...shared,
-          shopCode: warehouse.warehouseCode,
-          quantity: warehouse.quantity,
-          quantityDelta: warehouse.quantityDelta,
-        });
+    if (nested.length > 0) {
+      if (hasBareNumber) {
+        // Mixing the two shapes means one of BC's numbers would be dropped.
+        throw new BadRequestException(
+          `Variant ${variant.variantCode} of ${dto.sku} carries both warehouses[] and a bare quantity`,
+        );
+      }
+
+      for (const warehouse of nested) {
+        lines.push(
+          buildLine(dto.sku, shared, warehouse.warehouseCode, warehouse),
+        );
       }
       continue;
     }
@@ -122,25 +125,49 @@ function toStockCommand(dto: BcStockEventDto): StockUpdateCommand {
       );
     }
 
-    lines.push({
-      ...shared,
-      shopCode: dto.warehouseCode,
-      quantity: variant.quantity,
-      quantityDelta: variant.quantityDelta,
-    });
-  }
-
-  const blind = lines.find(
-    (line) => line.quantity === undefined && line.quantityDelta === undefined,
-  );
-  if (blind) {
-    // Applying such a line would silently zero the stock of a real warehouse.
-    throw new BadRequestException(
-      `Line ${dto.sku}/${blind.variantCode} at ${blind.shopCode} carries neither quantity nor quantityDelta`,
-    );
+    lines.push(buildLine(dto.sku, shared, dto.warehouseCode, variant));
   }
 
   return { sku: dto.sku, lines };
+}
+
+/**
+ * One variant/warehouse line, with the number BC sent.
+ *
+ * `null` is treated as absent, not as a value. A producer that emits the unused
+ * field as `null` rather than omitting it would otherwise land here as an
+ * absolute zero and wipe a real warehouse's stock: `@IsOptional()` skips
+ * validation for `null`, so it reaches this point looking like data.
+ */
+function buildLine(
+  sku: string,
+  shared: { variantCode: string },
+  shopCode: string,
+  reported: { quantity?: number | null; quantityDelta?: number | null },
+): StockLine {
+  const quantity = present(reported.quantity) ? reported.quantity : undefined;
+  const quantityDelta = present(reported.quantityDelta)
+    ? reported.quantityDelta
+    : undefined;
+
+  if (quantity !== undefined && quantityDelta !== undefined) {
+    throw new BadRequestException(
+      `Line ${sku}/${shared.variantCode} at ${shopCode} carries both quantity and quantityDelta`,
+    );
+  }
+
+  if (quantity === undefined && quantityDelta === undefined) {
+    // Applying such a line would silently zero the stock of a real warehouse.
+    throw new BadRequestException(
+      `Line ${sku}/${shared.variantCode} at ${shopCode} carries neither quantity nor quantityDelta`,
+    );
+  }
+
+  return { ...shared, shopCode, quantity, quantityDelta };
+}
+
+function present(value: number | null | undefined): value is number {
+  return value !== null && value !== undefined;
 }
 
 function toDate(value: string | undefined): Date | undefined {

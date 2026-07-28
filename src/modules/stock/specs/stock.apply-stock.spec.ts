@@ -36,6 +36,7 @@ function buildService(overrides: { currentQuantity?: number | null } = {}) {
         overrides.currentQuantity === undefined ? 2 : overrides.currentQuantity,
       ),
     setQuantity: jest.fn().mockResolvedValue({}),
+    adjustQuantity: jest.fn().mockResolvedValue(undefined),
   } as unknown as ShopStockRepository;
 
   const shopResolver = {
@@ -80,10 +81,8 @@ describe(StockApplyStockService.name, () => {
       expect(shopStockRepository.findQuantity).not.toHaveBeenCalled();
     });
 
-    it('should adjust the stored quantity when BC reports a delta', async () => {
-      const { service, shopStockRepository } = buildService({
-        currentQuantity: 2,
-      });
+    it('should hand a delta to the atomic adjust, not read-modify-write it', async () => {
+      const { service, shopStockRepository } = buildService();
 
       await service.apply(
         {
@@ -93,23 +92,47 @@ describe(StockApplyStockService.name, () => {
         tx,
       );
 
-      expect(shopStockRepository.setQuantity).toHaveBeenCalledWith(
+      // Reading then writing loses concurrent deltas for the same pair.
+      expect(shopStockRepository.adjustQuantity).toHaveBeenCalledWith(
         'variant-000',
         '0119',
-        12,
+        10,
         tx,
       );
+      expect(shopStockRepository.setQuantity).not.toHaveBeenCalled();
+      expect(shopStockRepository.findQuantity).not.toHaveBeenCalled();
     });
 
-    it('should clamp a negative result at zero', async () => {
-      const { service, shopStockRepository } = buildService({
-        currentQuantity: 2,
-      });
+    it('should pass a negative delta through for the database to clamp', async () => {
+      const { service, shopStockRepository } = buildService();
 
       await service.apply(
         {
           sku: '200202',
           lines: [{ variantCode: '000', shopCode: '0119', quantityDelta: -5 }],
+        },
+        tx,
+      );
+
+      expect(shopStockRepository.adjustQuantity).toHaveBeenCalledWith(
+        'variant-000',
+        '0119',
+        -5,
+        tx,
+      );
+    });
+
+    it('should treat an absolute zero as a real value, not as absent', async () => {
+      const { service, shopStockRepository } = buildService({
+        currentQuantity: 99,
+      });
+
+      // A warehouse going to zero is the most safety-critical message BC sends:
+      // reading `quantity: 0` as "no value" would keep selling what is gone.
+      await service.apply(
+        {
+          sku: '200202',
+          lines: [{ variantCode: '000', shopCode: '0119', quantity: 0 }],
         },
         tx,
       );
@@ -120,6 +143,27 @@ describe(StockApplyStockService.name, () => {
         0,
         tx,
       );
+      expect(shopStockRepository.adjustQuantity).not.toHaveBeenCalled();
+    });
+
+    it('should treat a zero delta as a no-op adjustment, not as absent', async () => {
+      const { service, shopStockRepository } = buildService();
+
+      await service.apply(
+        {
+          sku: '200202',
+          lines: [{ variantCode: '000', shopCode: '0119', quantityDelta: 0 }],
+        },
+        tx,
+      );
+
+      expect(shopStockRepository.adjustQuantity).toHaveBeenCalledWith(
+        'variant-000',
+        '0119',
+        0,
+        tx,
+      );
+      expect(shopStockRepository.setQuantity).not.toHaveBeenCalled();
     });
 
     it('should clamp a negative absolute quantity at zero', async () => {
@@ -184,29 +228,22 @@ describe(StockApplyStockService.name, () => {
       ]);
     });
 
-    it('should pass the barcode and reported price through to the variant', async () => {
+    it('should only ensure the variant exists, never write master data from a stock message', async () => {
       const { service, variantRepository } = buildService();
 
       await service.apply(
         {
           sku: '200202',
-          lines: [
-            {
-              variantCode: '000',
-              shopCode: '0119',
-              quantity: 10,
-              barcodeNo: '770662476000',
-              price: 699,
-            },
-          ],
+          lines: [{ variantCode: '000', shopCode: '0119', quantity: 10 }],
         },
         tx,
       );
 
+      // barcodeNo and price belong to the catalogue message. A second writer on
+      // barcodeNo would let a reused EAN roll back a whole batch of quantities.
       expect(variantRepository.ensureForStock).toHaveBeenCalledWith(
         '200202',
         '000',
-        { barcodeNo: '770662476000', price: 699 },
         tx,
       );
     });

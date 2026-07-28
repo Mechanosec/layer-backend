@@ -30,17 +30,26 @@ all four combinations under discussion are accepted:
 ## How it works
 
 `toStockCommand` in `bc-events.service.ts` flattens whichever shape arrived into one
-`StockLine` per variant/warehouse pair. Everything downstream sees only "set this
-quantity" or "adjust by this much". When BC decides, delete the unused branches in
-that one function — nothing else needs touching.
+`StockLine` per variant/warehouse pair. The *warehouse* dimension is fully
+normalised. The absolute-vs-delta dimension is carried through as two optional
+fields and branched on in `StockApplyStockService`, so settling the contract means
+editing that service and the domain command too, not only the mapper.
 
-Two rules are load-bearing:
+Three rules are load-bearing:
 
 - A line with **neither** `quantity` nor `quantityDelta` is rejected. Applying it
-  would silently zero the stock of a real warehouse.
-- `price` on a stock message is accepted so the message is not rejected, and stored
-  on the variant for reference, but no stock logic reads it. Nobody has explained why
-  a stock message carries a price; the catalogue price stays authoritative.
+  would silently zero the stock of a real warehouse. `null` counts as absent:
+  `@IsOptional()` skips validation for `null`, so a producer emitting the unused
+  field as `null` would otherwise arrive looking like an absolute zero.
+- A line carrying **both**, or a variant mixing `warehouses[]` with a bare
+  `quantity`, is rejected rather than silently resolved — one of BC's numbers would
+  be dropped, and while the contract is unsettled a guess is worse than a failure.
+- `price` and `barcodeNo` on a stock message are accepted so the message is not
+  rejected, then **discarded**. The catalogue message owns master data. Writing
+  `barcodeNo` from here would give a unique-ish column a second writer, and a reused
+  or corrected EAN would roll back the whole apply transaction — freezing every
+  quantity in that message over a data-quality wobble. A price written from a
+  quantity feed would likewise race the catalogue with no ordering between topics.
 
 Absolute values are idempotent on replay; deltas are not. That is why the inbox guard
 in `docs/superpower/event-ingestion.md` is not optional while the shape is undecided.

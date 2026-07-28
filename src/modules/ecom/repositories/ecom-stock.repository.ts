@@ -80,13 +80,24 @@ export class EcomStockRepository extends BaseRepository {
     });
   }
 
+  /**
+   * Stamps delivery on exactly the pairs that were delivered.
+   *
+   * Scoped by region on purpose: filtering on `variantId` alone would mark a
+   * variant's other regions as delivered too, including ones whose stale result
+   * was deliberately withheld — destroying the one signal that a region is behind.
+   */
   public async markPublished(
-    variantIds: string[],
+    pairs: { variantId: string; regionId: string }[],
     publishedAt: Date,
     tx?: TransactionClient,
   ): Promise<number> {
+    if (pairs.length === 0) {
+      return 0;
+    }
+
     const { count } = await this.client(tx).ecomStock.updateMany({
-      where: { variantId: { in: variantIds } },
+      where: { OR: pairs },
       data: { publishedAt },
     });
 

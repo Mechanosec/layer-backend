@@ -35,12 +35,25 @@ export class ShopRepository extends BaseRepository {
       : null;
   }
 
-  public async create(
+  /**
+   * Creates a shop BC has named but nobody has mapped yet.
+   *
+   * `includedInEcom: false` on purpose: an unmapped warehouse must not have its
+   * stock published under the placeholder region. Failing closed means the stock
+   * waits for someone to map the shop, instead of being offered for sale under a
+   * region e-com has never heard of.
+   *
+   * An upsert rather than a create because two messages naming the same unknown
+   * warehouse would otherwise collide and both be parked as failed.
+   */
+  public async ensureUnmapped(
     data: { code: string; regionId: string },
     tx?: TransactionClient,
   ): Promise<ResolvedShop> {
-    const shop = await this.client(tx).shop.create({
-      data,
+    const shop = await this.client(tx).shop.upsert({
+      where: { code: data.code },
+      create: { ...data, includedInEcom: false },
+      update: {},
       select: SHOP_WITH_REGION,
     });
 
