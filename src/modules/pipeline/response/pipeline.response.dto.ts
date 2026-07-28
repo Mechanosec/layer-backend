@@ -76,7 +76,7 @@ export class PipelineCalculationDto {
 }
 
 export class PipelineEventDto {
-  @ApiProperty({ example: 'GLOBAL', enum: ['GLOBAL', 'UNIT'] })
+  @ApiProperty({ example: 'STOCK', enum: ['PRODUCT', 'STOCK'] })
   type!: string;
 
   @ApiProperty({
@@ -172,11 +172,14 @@ export class PipelineTraceDto {
   @ApiProperty({ example: 'Кросівки жіночі' })
   name!: string;
 
-  @ApiPropertyOptional({ example: 'ЧОРНО-БІЛИЙ (вимк)/37' })
-  metadata?: string | null;
+  @ApiPropertyOptional({ example: 'КОРИЧНЕВИЙ · 42' })
+  descriptor?: string | null;
 
   @ApiPropertyOptional({ example: 'ПАР' })
   unitMeasure?: string | null;
+
+  @ApiPropertyOptional({ example: 'ВЕСНА 2025' })
+  seasonName?: string | null;
 
   @ApiProperty({ type: [PipelineShopLineDto] })
   shops!: PipelineShopLineDto[];
@@ -204,8 +207,8 @@ export class PipelineVariantRefDto {
   @ApiProperty({ example: 'Кросівки жіночі' })
   name!: string;
 
-  @ApiPropertyOptional({ example: 'ЧОРНО-БІЛИЙ (вимк)/37' })
-  metadata?: string | null;
+  @ApiPropertyOptional({ example: 'КОРИЧНЕВИЙ · 42' })
+  descriptor?: string | null;
 }
 
 export class PipelineShopRefDto {

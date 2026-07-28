@@ -45,7 +45,7 @@ A calculation calls e-com, so `pnpm mock:ecom` has to be running for anything to
 published locally. Its `PUT /_state` switches between `ok`, `down`, `slow` and
 `garbage` to exercise the no-fresh-reservations path.
 
-The sibling project `../layer-visualizer` renders this whole flow on one page for
+The `visualizer/` folder renders this whole flow on one page for
 non-technical readers. It is read-only apart from the endpoints it calls, and it reads
 `/pipeline/*` — a module that exists purely to explain the pipeline, which is why its
 repository queries several modules' tables directly.
@@ -93,8 +93,20 @@ Rules that matter:
 
 `bc-events → stock → ecom`. Nothing points back. `ecom` owns both the calculated result
 (`EcomStock`) and the outbox, so `stock` can hand it a result without a cycle. The BC DTOs
-are mapped to domain commands (`StockSnapshotCommand` / `StockDeltaCommand`) in
+are mapped to domain commands (`ProductCatalogueCommand` / `StockUpdateCommand`) in
 `bc-events.service.ts`, which is why the stock module never sees a Kafka payload shape.
+
+### BC's message shapes are not settled
+
+Two messages arrive: **product** (master data, no quantities) and **stock** (quantities per
+variant per warehouse). The stock one is still moving — warehouses may be nested per variant
+or named once for the message, and the number may be absolute or a delta. All four
+combinations are normalised in `toStockCommand` in `bc-events.service.ts`, and that mapping
+function is the only place that should ever need to change when BC decides.
+
+Two rules hold there: a line with neither `quantity` nor `quantityDelta` is **rejected**, never
+treated as zero (it would silently empty a real warehouse), and `price` on a stock message is
+accepted but never read by stock logic — nobody has explained why BC sends it.
 
 ### Configuration vs tuning
 

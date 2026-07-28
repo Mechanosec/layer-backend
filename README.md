@@ -13,16 +13,24 @@ Business Central ──▶ Kafka ──▶ layer ──▶ Postgres
 ## The flow
 
 1. **Ingest.** Two topics are consumed:
-   - `bc.stock.global` — a full snapshot: the *absolute* quantity of one variant in one shop,
-     plus the product attributes BC knows (name, category, brand, price, customs code).
-   - `bc.stock.unit` — a *delta*: how far the stock of one variant moved in one shop.
+   - **product** (`bc.product.global`, BC calls it "загальний") — master data: the SKU, its
+     season, hierarchy, customs codes, price, and every variant with its barcode, colour and
+     size. **No quantities.**
+   - **stock** (`bc.stock.unit`) — quantities per variant per warehouse.
 
    Every message is written to a `BcEvent` inbox keyed by `(topic, partition, offset)`, which
    makes redelivery a no-op instead of double-counting stock.
 
-2. **Apply.** A snapshot replaces the stored quantity; a delta adjusts it (clamped at zero).
-   Shops and products BC has not described yet are created on the fly — an unmapped shop
-   delays e-com visibility instead of dropping the event.
+   > **BC has not settled the stock shape.** It may nest `warehouses[]` inside each variant or
+   > name a single `warehouseCode` for the whole message, and may send an absolute `quantity`
+   > or a signed `quantityDelta`. All four combinations are accepted and normalised into one
+   > command in `bc-events.service.ts`; nothing downstream knows the difference. When BC
+   > decides, delete the branches that are left unused.
+
+2. **Apply.** A product message upserts the catalogue and touches no stock. A stock message
+   sets each variant/warehouse quantity — replacing it for an absolute value, adjusting it for
+   a delta, clamped at zero. Shops and products BC has not described yet are created on the
+   fly, so an unmapped shop delays e-com visibility instead of dropping the event.
 
 3. **Calculate.** For the affected variant and region:
 
@@ -94,15 +102,23 @@ pnpm start:dev
 
 Swagger is served at http://localhost:3000/docs, health at `/health`.
 
-Outside production, `POST /bc/simulate/global` and `POST /bc/simulate/unit` inject BC
+Outside production, `POST /bc/simulate/product` and `POST /bc/simulate/stock` inject BC
 payloads straight into the ingest pipeline, so the calculation can be exercised without a
 real producer:
 
 ```bash
-curl -X POST http://localhost:3000/bc/simulate/global -H 'Content-Type: application/json' -d '{
-  "sku":"200202","name":"Кросівки жіночі","metadata":"ЧОРНО-БІЛИЙ (вимк)/37","variantCode":"000",
-  "unitMeasure":"ПАР","quantity":10,"shopCode":"0119","category":"Кросівки","price":"283",
-  "brand":"NORBY","customCategoryCode":"6402999100","customCategoryCodeDescription":"менш як 24 см"}'
+# the product card
+curl -X POST http://localhost:3000/bc/simulate/product -H 'Content-Type: application/json' -d '{
+  "sku":"200202","name":"Кросівки жіночі","unitMeasure":"ПАР","brand":"NORBY","price":699.00,
+  "season":{"name":"ВЕСНА 2025","startingDate":"2025-03-01","endingDate":"2025-05-31"},
+  "productHierarchy":{"division":"ОДЯГ","category":"Кросівки","retailProductCode":"КРОСІВКИ ЖІНОЧІ"},
+  "customCategoryCode":"6402999100","customCategoryCodeDescription":"менш як 24 см",
+  "variants":[{"variantCode":"000","barcodeNo":"770662476000","color":"КОРИЧНЕВИЙ","size":"42"}]}'
+
+# and the quantities
+curl -X POST http://localhost:3000/bc/simulate/stock -H 'Content-Type: application/json' -d '{
+  "sku":"200202","variants":[{"variantCode":"000","barcodeNo":"770662476000","price":699.00,
+  "warehouses":[{"warehouseCode":"0119","quantity":10},{"warehouseCode":"0120","quantity":4}]}]}'
 
 curl http://localhost:3000/stock/200202
 ```
@@ -126,7 +142,7 @@ curl -X PUT http://localhost:4000/_state -H 'content-type: application/json' \
 
 ### Візуалізатор
 
-Сусідній проєкт `../layer-visualizer` показує весь цей потік на одній сторінці —
+Папка `visualizer/` показує весь цей потік на одній сторінці —
 конвеєр, лента розрахунку і журнал, українською, для менеджера. Він читає
 `/pipeline/*` і нічого не змінює поза API цього сервісу.
 
@@ -175,6 +191,11 @@ src/
     ├── kafka/                   producer, admin (topic creation), topic constants
     ├── filters/                 Prisma → HTTP error mapping
     └── swagger/
+
+tools/mock-ecom.mjs              e-com reservations stub for local runs
+start-demo.sh                    the whole stand in one command
+visualizer/                      the page that explains the flow (its own README)
+docs/                            modules/ and superpower/ — read before a task
 ```
 
 Each module follows the same shape: a `*.module.ts`, a thin `*.controller.ts`, a facade

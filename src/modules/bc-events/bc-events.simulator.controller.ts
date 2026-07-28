@@ -5,8 +5,8 @@ import { KAFKA_TOPICS } from '../../shared/kafka/constants/kafka-topics.constant
 import { KafkaMessageMeta } from '../../shared/kafka/types/kafka.type';
 import { ESwaggerApiTag } from '../../shared/swagger/swagger.util';
 import { BcEventsService } from './bc-events.service';
-import { BcGlobalStockEventDto } from './dto/bc-global-stock-event.dto';
-import { BcUnitStockEventDto } from './dto/bc-unit-stock-event.dto';
+import { BcProductEventDto } from './dto/bc-product-event.dto';
+import { BcStockEventDto } from './dto/bc-stock-event.dto';
 import { EIngestOutcome } from './types/bc-events.type';
 
 /**
@@ -23,45 +23,45 @@ export class BcEventsSimulatorController {
 
   constructor(private readonly bcEventsService: BcEventsService) {}
 
-  @Post('global')
+  @Post('product')
   @ApiOperation({
-    summary: 'Inject a "global" stock snapshot as if BC had sent it',
+    summary: 'Inject a product ("загальний") message as if BC had sent it',
+    description:
+      'Master data only — creates the product and its variants, no stock.',
   })
   @ApiOkResponse({
     schema: {
       properties: { outcome: { enum: Object.values(EIngestOutcome) } },
     },
   })
-  public async global(
-    @Body() body: BcGlobalStockEventDto,
+  public async product(
+    @Body() body: BcProductEventDto,
   ): Promise<{ outcome: EIngestOutcome }> {
-    const outcome = await this.bcEventsService.ingestGlobal(
+    const outcome = await this.bcEventsService.ingestProduct(
       { ...body },
-      this.buildMeta(
-        KAFKA_TOPICS.bcStockGlobal,
-        `${body.sku}:${body.variantCode}`,
-      ),
+      this.buildMeta(KAFKA_TOPICS.bcProduct, body.sku),
     );
 
     return { outcome };
   }
 
-  @Post('unit')
-  @ApiOperation({ summary: 'Inject a "unit" stock delta as if BC had sent it' })
+  @Post('stock')
+  @ApiOperation({
+    summary: 'Inject a stock message as if BC had sent it',
+    description:
+      'Accepts every shape under discussion: warehouses nested per variant, or one warehouseCode for the message; absolute quantity or quantityDelta.',
+  })
   @ApiOkResponse({
     schema: {
       properties: { outcome: { enum: Object.values(EIngestOutcome) } },
     },
   })
-  public async unit(
-    @Body() body: BcUnitStockEventDto,
+  public async stock(
+    @Body() body: BcStockEventDto,
   ): Promise<{ outcome: EIngestOutcome }> {
-    const outcome = await this.bcEventsService.ingestUnit(
+    const outcome = await this.bcEventsService.ingestStock(
       { ...body },
-      this.buildMeta(
-        KAFKA_TOPICS.bcStockUnit,
-        `${body.sku}:${body.variantCode}`,
-      ),
+      this.buildMeta(KAFKA_TOPICS.bcStock, body.sku),
     );
 
     return { outcome };

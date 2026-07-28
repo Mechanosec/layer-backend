@@ -4,11 +4,12 @@ import { EcomModule } from '../ecom/ecom.module';
 import { ProductVariantRepository } from './repositories/product-variant.repository';
 import { ProductRepository } from './repositories/product.repository';
 import { RegionRepository } from './repositories/region.repository';
+import { SeasonRepository } from './repositories/season.repository';
 import { ShopStockRepository } from './repositories/shop-stock.repository';
 import { ShopRepository } from './repositories/shop.repository';
 import { StockRecalculationTaskRepository } from './repositories/stock-recalculation-task.repository';
-import { StockApplyDeltaService } from './services/stock.apply-delta.service';
-import { StockApplySnapshotService } from './services/stock.apply-snapshot.service';
+import { StockApplyCatalogueService } from './services/stock.apply-catalogue.service';
+import { StockApplyStockService } from './services/stock.apply-stock.service';
 import { StockCalculateService } from './services/stock.calculate.service';
 import { StockReadService } from './services/stock.read.service';
 import { StockRecalculateService } from './services/stock.recalculate.service';
@@ -25,8 +26,8 @@ import { StockService } from './stock.service';
     StockService,
 
     // Operations
-    StockApplySnapshotService,
-    StockApplyDeltaService,
+    StockApplyCatalogueService,
+    StockApplyStockService,
     StockRecalculateService,
     StockRetryRecalculationService,
     StockCalculateService,
@@ -39,6 +40,7 @@ import { StockService } from './stock.service';
     ShopRepository,
     ShopStockRepository,
     RegionRepository,
+    SeasonRepository,
     StockRecalculationTaskRepository,
   ],
   exports: [StockService],

@@ -23,6 +23,7 @@ import { KafkaProducerService } from './kafka/kafka-producer.service';
     AppConfigService,
     DatabaseService,
     EcomApiService,
+    KafkaAdminService,
     KafkaProducerService,
   ],
 })

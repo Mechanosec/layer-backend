@@ -3,7 +3,7 @@
 ## Purpose
 
 Read-only view of the whole flow, for explaining the stock calculation to people
-who do not read logs. Backs the `layer-visualizer` page.
+who do not read logs. Backs the page in `visualizer/`.
 
 ## Key responsibilities
 

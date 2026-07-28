@@ -11,27 +11,27 @@ import { KafkaMessageMeta } from '../../shared/kafka/types/kafka.type';
 import { BcEventsService } from './bc-events.service';
 
 /**
- * Kafka entry point for Business Central stock events. Validation and
- * persistence live in the services; this class only unwraps the message.
+ * Kafka entry point for Business Central. Validation, mapping and persistence live
+ * in the services; this class only unwraps the message.
  */
 @Controller()
 export class BcEventsController {
   constructor(private readonly bcEventsService: BcEventsService) {}
 
-  @EventPattern(KAFKA_TOPICS.bcStockGlobal)
-  public async handleGlobal(
+  @EventPattern(KAFKA_TOPICS.bcProduct)
+  public async handleProduct(
     @Payload() payload: unknown,
     @Ctx() context: KafkaContext,
   ): Promise<void> {
-    await this.bcEventsService.ingestGlobal(payload, toMessageMeta(context));
+    await this.bcEventsService.ingestProduct(payload, toMessageMeta(context));
   }
 
-  @EventPattern(KAFKA_TOPICS.bcStockUnit)
-  public async handleUnit(
+  @EventPattern(KAFKA_TOPICS.bcStock)
+  public async handleStock(
     @Payload() payload: unknown,
     @Ctx() context: KafkaContext,
   ): Promise<void> {
-    await this.bcEventsService.ingestUnit(payload, toMessageMeta(context));
+    await this.bcEventsService.ingestStock(payload, toMessageMeta(context));
   }
 }
 

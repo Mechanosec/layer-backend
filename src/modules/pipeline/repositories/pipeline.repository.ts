@@ -24,7 +24,16 @@ export class PipelineRepository extends BaseRepository {
     return this.database.productVariant.findUnique({
       where: { sku_variantCode: { sku, variantCode } },
       include: {
-        product: { select: { name: true, category: true, brand: true } },
+        product: {
+          select: {
+            name: true,
+            category: true,
+            brand: true,
+            unitMeasure: true,
+            price: true,
+            season: { select: { name: true } },
+          },
+        },
         stocks: {
           orderBy: { shopCode: 'asc' },
           include: {
@@ -47,9 +56,13 @@ export class PipelineRepository extends BaseRepository {
     });
   }
 
+  /**
+   * Messages are keyed by SKU. `startsWith` rather than equality because the key
+   * has carried a variant suffix before and may again — BC's shapes keep moving.
+   */
   public async findEventsForSku(sku: string, take: number): Promise<BcEvent[]> {
     return this.database.bcEvent.findMany({
-      where: { key: { startsWith: `${sku}:` } },
+      where: { key: { startsWith: sku } },
       orderBy: { receivedAt: 'desc' },
       take,
     });
@@ -99,7 +112,8 @@ export class PipelineRepository extends BaseRepository {
       select: {
         sku: true,
         variantCode: true,
-        metadata: true,
+        color: true,
+        size: true,
         product: { select: { name: true } },
       },
     });

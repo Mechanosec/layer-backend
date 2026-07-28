@@ -11,8 +11,9 @@ delivery, and a message that cannot be applied never blocks the stream.
 
 Every message is written to the `BcEvent` inbox with a unique
 `(topic, partition, offset)`. A redelivered message inserts zero rows and is
-skipped. This matters because a *snapshot* is idempotent (absolute value) but a
-*delta* is not — applying `-3` twice is simply wrong.
+skipped. This matters because an absolute quantity is idempotent but a *delta* is
+not — applying `-3` twice is simply wrong — and BC has not yet said which it will
+send (`docs/superpower/bc-messages.md`).
 
 ### Transaction boundary
 
@@ -42,7 +43,9 @@ forever.
 ### Coalescing
 
 Recalculation tasks are unique per `(variantId, regionId)`, so a burst of ten events
-for one variant collapses into one outstanding calculation.
+for one variant collapses into one outstanding calculation. The same key also means a
+single stock message touching four warehouses of one region produces one calculation,
+not four — `StockApplyStockService` deduplicates its targets before they are queued.
 
 ## Related modules
 

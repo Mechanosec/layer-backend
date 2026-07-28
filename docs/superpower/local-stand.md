@@ -30,7 +30,7 @@ Flags: `--fresh` (wipe demo products and events, keep the reference data),
 - **`tools/mock-ecom.mjs`** (`pnpm mock:ecom`) — stands in for the e-com reservations
   API. `PUT /_state` switches between `ok`, `down`, `slow` and `garbage`, which is how
   the no-fresh-reservations path gets exercised.
-- **`../layer-visualizer`** — a Vite/React page in Ukrainian that renders the six
+- **`visualizer/`** — a Vite/React page in Ukrainian that renders the six
   pipeline stages, the calculation as a stock-take tape, and a journal of what came in
   and went out. Read-only apart from the endpoints it calls; it reads `/pipeline/*`.
 

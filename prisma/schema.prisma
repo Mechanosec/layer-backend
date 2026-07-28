@@ -40,7 +40,8 @@ model Region {
   updatedAt DateTime @updatedAt
 }
 
-/// A physical shop. `code` is the BC `shopCode` carried by every event.
+/// A physical shop. `code` is what BC calls `warehouseCode` (earlier `shopCode`)
+/// and carries on every stock message.
 model Shop {
   code String  @id
   name String?
@@ -63,17 +64,52 @@ model Shop {
   @@index([regionId])
 }
 
+/// A Business Central season, e.g. "ВЕСНА 2025". Shared by many products, so it
+/// is kept as its own row rather than duplicated onto each of them.
+model Season {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+
+  startsAt DateTime? @db.Date
+  endsAt   DateTime? @db.Date
+
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 /// Product-level attributes, shared by all variants of a SKU.
+///
+/// Everything BC sends outside the `variants` array lives here — including
+/// `unitMeasure`, `price` and the customs codes, which describe the product and
+/// not an individual size.
 model Product {
-  sku      String  @id
-  name     String
-  category String?
-  brand    String?
+  sku  String @id
+  name String
+
+  brand       String?
+  /// BC `unitMeasure`, e.g. "ПАР".
+  unitMeasure String?
+  price       Decimal? @db.Decimal(14, 2)
+
+  // BC `productHierarchy`.
+  division          String?
+  category          String?
+  retailProductCode String?
+
+  customCategoryCode            String?
+  customCategoryCodeDescription String?
+
+  seasonId String? @db.Uuid
+  season   Season? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
 
   variants ProductVariant[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([seasonId])
 }
 
 /// A concrete sellable item: SKU + BC variant code (colour/size live in `metadata`).
@@ -85,14 +121,16 @@ model ProductVariant {
 
   /// BC `variantCode`, e.g. "000".
   variantCode String
-  /// Raw BC descriptor, e.g. "ЧОРНО-БІЛИЙ (вимк)/37".
-  metadata    String?
-  /// BC `unitMeasure`, e.g. "ПАР".
-  unitMeasure String?
-  price       Decimal? @db.Decimal(14, 2)
+  /// EAN from BC. Unique across the catalogue, so it can be looked up on its own.
+  barcodeNo   String? @unique
 
-  customCategoryCode            String?
-  customCategoryCodeDescription String?
+  // BC describes a variant by colour and size rather than one free-text string.
+  color String?
+  size  String?
+
+  /// Price as reported for this variant by the stock message. Falls back to
+  /// `Product.price` from the catalogue message when absent.
+  price Decimal? @db.Decimal(14, 2)
 
   stocks             ShopStock[]
   ecomStocks         EcomStock[]
@@ -204,10 +242,10 @@ model StockRecalculationTask {
 }
 
 enum BcEventType {
-  /// Full snapshot: absolute quantity for a variant in a shop.
-  GLOBAL
-  /// Incremental change: `quantityDelta` for a variant in a shop.
-  UNIT
+  /// Product and variant master data ("загальний"). Carries no quantities.
+  PRODUCT
+  /// Quantities per variant per warehouse, absolute or delta.
+  STOCK
 }
 
 enum BcEventStatus {

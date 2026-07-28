@@ -63,15 +63,17 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   KAFKA_CONSUMER_GROUP = 'layer-backend';
 
+  /** Product master data ("загальний"). */
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  KAFKA_TOPIC_BC_STOCK_GLOBAL = 'bc.stock.global';
+  KAFKA_TOPIC_BC_PRODUCT = 'bc.product.global';
 
+  /** Quantities per variant per warehouse. */
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  KAFKA_TOPIC_BC_STOCK_UNIT = 'bc.stock.unit';
+  KAFKA_TOPIC_BC_STOCK = 'bc.stock.unit';
 
   @IsOptional()
   @IsString()

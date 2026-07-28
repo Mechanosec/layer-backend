@@ -72,15 +72,19 @@ export class VariantStockResponseDto {
   @ApiProperty({ example: '000' })
   variantCode!: string;
 
-  @ApiPropertyOptional({ example: 'ЧОРНО-БІЛИЙ (вимк)/37' })
-  metadata?: string | null;
+  @ApiPropertyOptional({ example: '770662476000' })
+  barcodeNo?: string | null;
 
-  @ApiPropertyOptional({ example: 'ПАР' })
-  unitMeasure?: string | null;
+  @ApiPropertyOptional({ example: 'КОРИЧНЕВИЙ' })
+  color?: string | null;
+
+  @ApiPropertyOptional({ example: '42' })
+  size?: string | null;
 
   @ApiPropertyOptional({
-    example: '283',
-    description: 'Decimal serialised as a string',
+    example: '699.00',
+    description:
+      'Decimal serialised as a string. Falls back to the product price when the stock message carried none.',
   })
   price?: string | null;
 
@@ -91,6 +95,17 @@ export class VariantStockResponseDto {
   ecom!: EcomStockResponseDto[];
 }
 
+export class SeasonResponseDto {
+  @ApiProperty({ example: 'ВЕСНА 2025' })
+  name!: string;
+
+  @ApiPropertyOptional()
+  startsAt?: Date | null;
+
+  @ApiPropertyOptional()
+  endsAt?: Date | null;
+}
+
 export class ProductStockResponseDto {
   @ApiProperty({ example: '200202' })
   sku!: string;
@@ -98,11 +113,32 @@ export class ProductStockResponseDto {
   @ApiProperty({ example: 'Кросівки жіночі' })
   name!: string;
 
+  @ApiPropertyOptional({ example: 'NORBY' })
+  brand?: string | null;
+
+  @ApiPropertyOptional({ example: 'ПАР' })
+  unitMeasure?: string | null;
+
+  @ApiPropertyOptional({ example: '699.00' })
+  price?: string | null;
+
+  @ApiPropertyOptional({ example: 'ОДЯГ' })
+  division?: string | null;
+
   @ApiPropertyOptional({ example: 'Кросівки' })
   category?: string | null;
 
-  @ApiPropertyOptional({ example: 'NORBY' })
-  brand?: string | null;
+  @ApiPropertyOptional({ example: 'КРОСІВКИ ЖІНОЧІ' })
+  retailProductCode?: string | null;
+
+  @ApiPropertyOptional({ example: '6402999100' })
+  customCategoryCode?: string | null;
+
+  @ApiPropertyOptional({ example: 'менш як 24 см' })
+  customCategoryCodeDescription?: string | null;
+
+  @ApiPropertyOptional({ type: SeasonResponseDto })
+  season?: SeasonResponseDto | null;
 
   @ApiProperty({ type: [VariantStockResponseDto] })
   variants!: VariantStockResponseDto[];

@@ -12,8 +12,11 @@ import { StockTarget } from '../../stock/types/stock.type';
 import { BcEventRepository } from '../repositories/bc-event.repository';
 import { EIngestOutcome } from '../types/bc-events.type';
 
-/** Turns a validated payload into the stock change it describes. */
-type ApplyFn<T> = (dto: T, tx: TransactionClient) => Promise<StockTarget>;
+/**
+ * Turns a validated payload into the stock changes it describes. One message can
+ * touch many variant/warehouse pairs, and a catalogue message touches none.
+ */
+type ApplyFn<T> = (dto: T, tx: TransactionClient) => Promise<StockTarget[]>;
 
 @Injectable()
 export class BcEventsIngestService {
@@ -76,10 +79,10 @@ export class BcEventsIngestService {
       return EIngestOutcome.Invalid;
     }
 
-    let target: StockTarget;
+    let targets: StockTarget[];
 
     try {
-      target = await this.database.$transaction(async (tx) => {
+      targets = await this.database.$transaction(async (tx) => {
         const applied = await apply(dto, tx);
         await this.eventRepository.markProcessed(meta, tx);
 
@@ -99,9 +102,9 @@ export class BcEventsIngestService {
       return EIngestOutcome.Failed;
     }
 
-    // The recalculation task is committed by now, so a failure here only delays
-    // publication — the retry worker owns it from this point on.
-    await this.stockService.tryRecalculate(target);
+    // The recalculation tasks are committed by now, so a failure here only delays
+    // publication — the retry worker owns them from this point on.
+    await this.stockService.tryRecalculate(targets);
 
     return EIngestOutcome.Processed;
   }

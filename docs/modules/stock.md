@@ -6,8 +6,9 @@ Owns the per-shop picture of stock and derives the quantity e-com may sell.
 
 ## Key responsibilities
 
-- Apply a snapshot (replaces the stored quantity) or a delta (adjusts it, clamped
-  at zero)
+- Apply product master data: season, product attributes, and one row per variant
+- Apply stock: per variant/warehouse, replacing the quantity for an absolute value
+  or adjusting it for a delta, clamped at zero
 - Create products, variants and shops on first sight; unmapped shops land in the
   `UNASSIGNED` region so the calculation never meets a null region
 - Gather the formula inputs, run the calculation, and hand the result to `ecom`
@@ -19,10 +20,11 @@ Owns the per-shop picture of stock and derives the quantity e-com may sell.
 
 ## Public API / Exports
 
-- `StockService.applySnapshot(command, tx)` / `applyDelta(command, tx)` → `StockTarget`
-  (transactional; also enqueues a recalculation task)
+- `StockService.applyCatalogue(command, tx)` — master data, no recalculation
+- `StockService.applyStock(command, tx)` → `StockTarget[]` (transactional; also
+  enqueues one recalculation task per affected variant/region pair)
 - `StockService.recalculate(target)` — runs outside a transaction, calls e-com
-- `StockService.tryRecalculate(target)` — best-effort, for the ingest path
+- `StockService.tryRecalculate(targets)` — best-effort, for the ingest path
 - `StockService.recalculateVariant(sku, variantCode)` — every region the variant
   holds stock in
 - `StockService.getBySku(sku)`, `StockService.countBlockedCalculations()`

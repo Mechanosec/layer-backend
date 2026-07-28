@@ -16,7 +16,7 @@ export const swaggerConfig = new DocumentBuilder()
       'Consumes stock events from Business Central over Kafka, stores the per-shop',
       'picture of stock, derives the quantity available to e-com, and publishes it back onto Kafka.',
       '',
-      `Consumed topics: \`${KAFKA_TOPICS.bcStockGlobal}\`, \`${KAFKA_TOPICS.bcStockUnit}\`.`,
+      `Consumed topics: \`${KAFKA_TOPICS.bcProduct}\` (product master data), \`${KAFKA_TOPICS.bcStock}\` (quantities).`,
       `Produced topic: \`${KAFKA_TOPICS.ecomStock}\`.`,
     ].join('\n'),
   )

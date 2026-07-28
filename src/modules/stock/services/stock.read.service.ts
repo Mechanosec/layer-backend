@@ -14,13 +14,28 @@ export class StockReadService {
     return {
       sku: product.sku,
       name: product.name,
-      category: product.category,
       brand: product.brand,
+      unitMeasure: product.unitMeasure,
+      price: product.price?.toString() ?? null,
+      division: product.division,
+      category: product.category,
+      retailProductCode: product.retailProductCode,
+      customCategoryCode: product.customCategoryCode,
+      customCategoryCodeDescription: product.customCategoryCodeDescription,
+      season: product.season
+        ? {
+            name: product.season.name,
+            startsAt: product.season.startsAt,
+            endsAt: product.season.endsAt,
+          }
+        : null,
       variants: product.variants.map((variant) => ({
         variantCode: variant.variantCode,
-        metadata: variant.metadata,
-        unitMeasure: variant.unitMeasure,
-        price: variant.price?.toString() ?? null,
+        barcodeNo: variant.barcodeNo,
+        color: variant.color,
+        size: variant.size,
+        // Falls back to the catalogue price when the stock message did not carry one.
+        price: (variant.price ?? product.price)?.toString() ?? null,
         shops: variant.stocks.map((stock) => ({
           shopCode: stock.shopCode,
           shopName: stock.shop.name,

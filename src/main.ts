@@ -7,6 +7,7 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './modules/app.module';
 import { AppConfigService } from './shared/config/app-config.service';
 import { PrismaExceptionFilter } from './shared/filters/prisma-exception.filter';
+import { KafkaAdminService } from './shared/kafka/kafka-admin.service';
 import { swaggerConfig } from './shared/swagger/swagger.util';
 
 async function bootstrap(): Promise<void> {
@@ -39,6 +40,10 @@ async function bootstrap(): Promise<void> {
       SwaggerModule.createDocument(app, swaggerConfig),
     );
   }
+
+  // Topics must exist before the consumer subscribes: a missing topic is fatal to
+  // kafkajs, and broker-side auto-creation is too late.
+  await app.get(KafkaAdminService).ensureTopics();
 
   // The Kafka consumer runs inside the HTTP process; `inheritAppConfig` gives
   // event handlers the same pipes and filters as the REST endpoints.

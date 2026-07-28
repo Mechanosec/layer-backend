@@ -1,31 +1,60 @@
 /**
  * Domain commands. Business Central DTOs are mapped onto these by the bc-events
- * module, so the stock module never depends on the shape of a Kafka message.
+ * module, so the stock module never depends on the shape of a Kafka message — and
+ * does not care that BC is still changing its mind about that shape.
  */
 
-/** Absolute stock of a variant in a shop, plus the product attributes BC knows. */
-export interface StockSnapshotCommand {
-  sku: string;
-  name: string;
+/** One variant as the catalogue message describes it. */
+export interface ProductVariantDescriptor {
   variantCode: string;
-  shopCode: string;
-  quantity: number;
-  metadata?: string;
-  unitMeasure?: string;
-  price?: string;
-  category?: string;
-  brand?: string;
-  customCategoryCode?: string;
-  customCategoryCodeDescription?: string;
+  barcodeNo?: string;
+  color?: string;
+  size?: string;
 }
 
-/** Signed change to the stock of a variant in a shop. */
-export interface StockDeltaCommand {
+/**
+ * Product master data: everything BC knows about a SKU and its variants, with no
+ * stock in it at all.
+ */
+export interface ProductCatalogueCommand {
   sku: string;
+  name: string;
+  brand?: string;
+  unitMeasure?: string;
+  price?: number;
+  division?: string;
+  category?: string;
+  retailProductCode?: string;
+  customCategoryCode?: string;
+  customCategoryCodeDescription?: string;
+  season?: {
+    name: string;
+    startsAt?: Date;
+    endsAt?: Date;
+  };
+  variants: ProductVariantDescriptor[];
+}
+
+/**
+ * One variant in one shop. Exactly one of `quantity` and `quantityDelta` is set —
+ * whichever BC turns out to send.
+ */
+export interface StockLine {
   variantCode: string;
   shopCode: string;
-  quantityDelta: number;
-  unitMeasure?: string;
+  /** Absolute stock, replacing whatever was stored. */
+  quantity?: number;
+  /** Signed change against the stored value. */
+  quantityDelta?: number;
+  barcodeNo?: string;
+  /** Reported by the stock message; stored for reference only. */
+  price?: number;
+}
+
+/** A stock message, flattened: one entry per variant/shop pair it touched. */
+export interface StockUpdateCommand {
+  sku: string;
+  lines: StockLine[];
 }
 
 /** The variant a command referred to, and the region its shop belongs to. */
@@ -62,14 +91,13 @@ export interface StockRecalculationResult extends StockCalculationResult {
 
 /** Why a variant/region pair needs recalculating. Stored on the retry task. */
 export enum ERecalculationReason {
-  BcSnapshot = 'bc-snapshot',
-  BcDelta = 'bc-delta',
+  BcStock = 'bc-stock',
   ManualRequest = 'manual-request',
   /** A run started but e-com could not supply the reservations term. */
   EcomUnavailable = 'ecom-unavailable',
 }
 
-/** A shop resolved from a bare `shopCode`, with its region. */
+/** A shop resolved from a bare `warehouseCode`, with its region. */
 export interface ResolvedShop {
   code: string;
   regionId: string;

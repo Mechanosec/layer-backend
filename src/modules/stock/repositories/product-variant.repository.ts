@@ -4,7 +4,7 @@ import { Prisma, ProductVariant } from '../../../generated/prisma/client';
 import { BaseRepository } from '../../../shared/database/base.repository';
 import { DatabaseService } from '../../../shared/database/database.service';
 import { TransactionClient } from '../../../shared/database/types/database.type';
-import { StockSnapshotCommand } from '../types/stock.type';
+import { ProductVariantDescriptor } from '../types/stock.type';
 
 @Injectable()
 export class ProductVariantRepository extends BaseRepository {
@@ -12,31 +12,50 @@ export class ProductVariantRepository extends BaseRepository {
     super(database);
   }
 
-  public async upsertFromSnapshot(
-    command: StockSnapshotCommand,
+  /** Applies one variant from the catalogue message. */
+  public async upsertFromCatalogue(
+    sku: string,
+    descriptor: ProductVariantDescriptor,
     tx?: TransactionClient,
   ): Promise<Pick<ProductVariant, 'id'>> {
     const attributes = {
-      metadata: command.metadata,
-      unitMeasure: command.unitMeasure,
-      // BC sends the price as a string; Decimal keeps it exact.
-      price:
-        command.price === undefined
-          ? undefined
-          : new Prisma.Decimal(command.price),
-      customCategoryCode: command.customCategoryCode,
-      customCategoryCodeDescription: command.customCategoryCodeDescription,
+      barcodeNo: descriptor.barcodeNo,
+      color: descriptor.color,
+      size: descriptor.size,
     };
 
     return this.client(tx).productVariant.upsert({
       where: {
-        sku_variantCode: { sku: command.sku, variantCode: command.variantCode },
+        sku_variantCode: { sku, variantCode: descriptor.variantCode },
       },
-      create: {
-        sku: command.sku,
-        variantCode: command.variantCode,
-        ...attributes,
-      },
+      create: { sku, variantCode: descriptor.variantCode, ...attributes },
+      update: attributes,
+      select: { id: true },
+    });
+  }
+
+  /**
+   * Ensures the variant a stock line refers to exists, refreshing the fields the
+   * stock message happens to carry. It is not the catalogue, so it never invents
+   * colour or size.
+   */
+  public async ensureForStock(
+    sku: string,
+    variantCode: string,
+    reported: { barcodeNo?: string; price?: number },
+    tx?: TransactionClient,
+  ): Promise<Pick<ProductVariant, 'id'>> {
+    const attributes = {
+      barcodeNo: reported.barcodeNo,
+      price:
+        reported.price === undefined
+          ? undefined
+          : new Prisma.Decimal(reported.price),
+    };
+
+    return this.client(tx).productVariant.upsert({
+      where: { sku_variantCode: { sku, variantCode } },
+      create: { sku, variantCode, ...attributes },
       update: attributes,
       select: { id: true },
     });
@@ -49,16 +68,6 @@ export class ProductVariantRepository extends BaseRepository {
   ): Promise<Pick<ProductVariant, 'id'> | null> {
     return this.client(tx).productVariant.findUnique({
       where: { sku_variantCode: { sku, variantCode } },
-      select: { id: true },
-    });
-  }
-
-  public async create(
-    data: { sku: string; variantCode: string; unitMeasure?: string },
-    tx?: TransactionClient,
-  ): Promise<Pick<ProductVariant, 'id'>> {
-    return this.client(tx).productVariant.create({
-      data,
       select: { id: true },
     });
   }

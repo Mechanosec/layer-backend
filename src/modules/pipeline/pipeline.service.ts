@@ -44,7 +44,7 @@ export class PipelineService {
         sku: variant.sku,
         variantCode: variant.variantCode,
         name: variant.product.name,
-        metadata: variant.metadata,
+        descriptor: describeVariant(variant.color, variant.size),
       })),
     };
   }
@@ -74,8 +74,9 @@ export class PipelineService {
       sku: variant.sku,
       variantCode: variant.variantCode,
       name: variant.product.name,
-      metadata: variant.metadata,
-      unitMeasure: variant.unitMeasure,
+      descriptor: describeVariant(variant.color, variant.size),
+      unitMeasure: variant.product.unitMeasure,
+      seasonName: variant.product.season?.name ?? null,
       shops: variant.stocks.map((stock) => ({
         shopCode: stock.shopCode,
         shopName: stock.shop.name,
@@ -115,6 +116,14 @@ export class PipelineService {
 
     return { events: events.map(toEventDto), outbox: outbox.map(toOutboxDto) };
   }
+}
+
+/** "КОРИЧНЕВИЙ · 42" — what a person recognises the variant by. */
+function describeVariant(
+  color: string | null,
+  size: string | null,
+): string | null {
+  return [color, size].filter(Boolean).join(' · ') || null;
 }
 
 function toEventDto(event: BcEvent): PipelineEventDto {
