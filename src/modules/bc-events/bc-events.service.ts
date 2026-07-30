@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
 
+import { HttpCodeBcEventException } from '../../shared/constants/http-exception-code.constant';
 import { BcEventType } from '../../generated/prisma/client';
 import { KafkaMessageMeta } from '../../shared/kafka/types/kafka.type';
+import { describeError, handleExceptionCode } from '../../shared/utils/utils';
 import { StockService } from '../stock/stock.service';
 import {
   ProductCatalogueCommand,
@@ -21,12 +24,28 @@ import { EIngestOutcome } from './types/bc-events.type';
 @Injectable()
 export class BcEventsService {
   constructor(
+    private readonly logger: PinoLogger,
     private readonly ingestService: BcEventsIngestService,
     private readonly stockService: StockService,
   ) {}
 
   /** The "загальний" message: product and variant master data, no quantities. */
   public async ingestProduct(
+    payload: unknown,
+    meta: KafkaMessageMeta,
+  ): Promise<EIngestOutcome> {
+    try {
+      return await this.runProductIngest(payload, meta);
+    } catch (error) {
+      // Reached only when the inbox itself is unavailable: a malformed or
+      // unappliable payload is parked by the ingest service, not thrown.
+      const errorMessage = `[${BcEventsService.name}]Ingesting the product message from ${meta.topic}@${meta.offset} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async runProductIngest(
     payload: unknown,
     meta: KafkaMessageMeta,
   ): Promise<EIngestOutcome> {
@@ -46,6 +65,19 @@ export class BcEventsService {
 
   /** The stock message, in whichever of the four shapes BC sends. */
   public async ingestStock(
+    payload: unknown,
+    meta: KafkaMessageMeta,
+  ): Promise<EIngestOutcome> {
+    try {
+      return await this.runStockIngest(payload, meta);
+    } catch (error) {
+      const errorMessage = `[${BcEventsService.name}]Ingesting the stock message from ${meta.topic}@${meta.offset} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async runStockIngest(
     payload: unknown,
     meta: KafkaMessageMeta,
   ): Promise<EIngestOutcome> {
@@ -106,9 +138,10 @@ function toStockCommand(dto: BcStockEventDto): StockUpdateCommand {
     if (nested.length > 0) {
       if (hasBareNumber) {
         // Mixing the two shapes means one of BC's numbers would be dropped.
-        throw new BadRequestException(
-          `Variant ${variant.variantCode} of ${dto.sku} carries both warehouses[] and a bare quantity`,
-        );
+        throw new BadRequestException({
+          message: `Variant ${variant.variantCode} of ${dto.sku} carries both warehouses[] and a bare quantity`,
+          code: HttpCodeBcEventException.BC_STOCK_LINE_MIXED_SHAPES,
+        });
       }
 
       for (const warehouse of nested) {
@@ -120,9 +153,10 @@ function toStockCommand(dto: BcStockEventDto): StockUpdateCommand {
     }
 
     if (!dto.warehouseCode) {
-      throw new BadRequestException(
-        `Variant ${variant.variantCode} of ${dto.sku} has no warehouses and the message has no warehouseCode`,
-      );
+      throw new BadRequestException({
+        message: `Variant ${variant.variantCode} of ${dto.sku} has no warehouses and the message has no warehouseCode`,
+        code: HttpCodeBcEventException.BC_STOCK_LINE_WITHOUT_WAREHOUSE,
+      });
     }
 
     lines.push(buildLine(dto.sku, shared, dto.warehouseCode, variant));
@@ -151,16 +185,18 @@ function buildLine(
     : undefined;
 
   if (quantity !== undefined && quantityDelta !== undefined) {
-    throw new BadRequestException(
-      `Line ${sku}/${shared.variantCode} at ${shopCode} carries both quantity and quantityDelta`,
-    );
+    throw new BadRequestException({
+      message: `Line ${sku}/${shared.variantCode} at ${shopCode} carries both quantity and quantityDelta`,
+      code: HttpCodeBcEventException.BC_STOCK_LINE_AMBIGUOUS,
+    });
   }
 
   if (quantity === undefined && quantityDelta === undefined) {
     // Applying such a line would silently zero the stock of a real warehouse.
-    throw new BadRequestException(
-      `Line ${sku}/${shared.variantCode} at ${shopCode} carries neither quantity nor quantityDelta`,
-    );
+    throw new BadRequestException({
+      message: `Line ${sku}/${shared.variantCode} at ${shopCode} carries neither quantity nor quantityDelta`,
+      code: HttpCodeBcEventException.BC_STOCK_LINE_WITHOUT_QUANTITY,
+    });
   }
 
   return { ...shared, shopCode, quantity, quantityDelta };

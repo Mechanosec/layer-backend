@@ -1,5 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
 
+import { HttpCodePipelineException } from '../../shared/constants/http-exception-code.constant';
+import { describeError, handleExceptionCode } from '../../shared/utils/utils';
 import {
   BcEvent,
   EcomStockOutbox,
@@ -23,9 +26,22 @@ const RECENT_LIMIT = 25;
  */
 @Injectable()
 export class PipelineService {
-  constructor(private readonly pipelineRepository: PipelineRepository) {}
+  constructor(
+    private readonly logger: PinoLogger,
+    private readonly pipelineRepository: PipelineRepository,
+  ) {}
 
   public async getStand(): Promise<PipelineStandDto> {
+    try {
+      return await this.readStand();
+    } catch (error) {
+      const errorMessage = `[${PipelineService.name}]Reading the stand was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async readStand(): Promise<PipelineStandDto> {
     const [shops, variants] = await Promise.all([
       this.pipelineRepository.findShops(),
       this.pipelineRepository.findKnownVariants(50),
@@ -53,15 +69,35 @@ export class PipelineService {
     sku: string,
     variantCode: string,
   ): Promise<PipelineTraceDto> {
+    try {
+      return await this.readTrace(sku, variantCode);
+    } catch (error) {
+      // A pair nobody has sent yet is an ordinary answer; the visualiser reads
+      // 404 as "nothing here yet" rather than as a failure.
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      const errorMessage = `[${PipelineService.name}]Reading the trace of ${sku}/${variantCode} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async readTrace(
+    sku: string,
+    variantCode: string,
+  ): Promise<PipelineTraceDto> {
     const variant = await this.pipelineRepository.findVariantWithStock(
       sku,
       variantCode,
     );
 
     if (!variant) {
-      throw new NotFoundException(
-        `Business Central has not sent anything about ${sku}/${variantCode} yet`,
-      );
+      throw new NotFoundException({
+        message: `Business Central has not sent anything about ${sku}/${variantCode} yet`,
+        code: HttpCodePipelineException.PIPELINE_VARIANT_NOT_FOUND,
+      });
     }
 
     const [events, outbox, blocked] = await Promise.all([
@@ -109,6 +145,16 @@ export class PipelineService {
   }
 
   public async getActivity(): Promise<PipelineActivityDto> {
+    try {
+      return await this.readActivity();
+    } catch (error) {
+      const errorMessage = `[${PipelineService.name}]Reading recent activity was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async readActivity(): Promise<PipelineActivityDto> {
     const [events, outbox] = await Promise.all([
       this.pipelineRepository.findRecentEvents(RECENT_LIMIT),
       this.pipelineRepository.findRecentOutbox(RECENT_LIMIT),

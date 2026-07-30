@@ -4,6 +4,10 @@ import { PinoLogger } from 'nestjs-pino';
 import { DatabaseService } from '../../../shared/database/database.service';
 import { EcomApiService } from '../../../shared/ecom-api/ecom-api.service';
 import { EcomApiUnavailableError } from '../../../shared/ecom-api/errors/ecom-api.error';
+import {
+  describeError,
+  handleExceptionCode,
+} from '../../../shared/utils/utils';
 import { EcomService } from '../../ecom/ecom.service';
 import { EcomStockSnapshot } from '../../ecom/types/ecom.type';
 import { RECALCULATION } from '../constants/stock.constants';
@@ -36,6 +40,18 @@ export class StockRecalculateService {
   ) {}
 
   public async run(target: StockTarget): Promise<StockRecalculationResult> {
+    try {
+      return await this.calculateAndStore(target);
+    } catch (error) {
+      const errorMessage = `[${StockRecalculateService.name}]Recalculating ${target.sku}/${target.variantCode} in ${target.regionCode} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async calculateAndStore(
+    target: StockTarget,
+  ): Promise<StockRecalculationResult> {
     const [shopsTotal, region, current] = await Promise.all([
       this.shopStockRepository.sumForRegion(target.variantId, target.regionId),
       this.regionRepository.findSafetyBuffer(target.regionId),

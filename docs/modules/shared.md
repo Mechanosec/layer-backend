@@ -20,6 +20,11 @@ modules under `src/modules` inject them without repeating imports.
 - `kafka/` — the producer, `KafkaAdminService` (creates topics at boot, because
   broker-side auto-creation is lazy and a consumer subscribing to a missing topic
   is fatal in kafkajs), and topic constants read at import time
+- `utils/` — `handleExceptionCode` (the shape every service's `catch` throws) and
+  `describeError` (the log form, including the fields `JSON.stringify` drops on an
+  `Error`)
+- `constants/` — `http-exception-code.constant.ts`, the numeric domain codes carried
+  on error responses
 - `filters/` — maps the Prisma error codes we rely on onto HTTP responses
 - `swagger/` — the document builder and the API tag enum
 

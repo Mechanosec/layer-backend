@@ -1,14 +1,43 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
 
+import { HttpCodeStockException } from '../../../shared/constants/http-exception-code.constant';
+import { Prisma } from '../../../generated/prisma/client';
+import {
+  describeError,
+  handleExceptionCode,
+} from '../../../shared/utils/utils';
 import { ProductRepository } from '../repositories/product.repository';
 import { ProductStockResponseDto } from '../response/stock.response.dto';
 
 /** Read model behind GET /stock/:sku. */
 @Injectable()
 export class StockReadService {
-  constructor(private readonly productRepository: ProductRepository) {}
+  constructor(
+    private readonly logger: PinoLogger,
+    private readonly productRepository: ProductRepository,
+  ) {}
 
   public async getBySku(sku: string): Promise<ProductStockResponseDto> {
+    try {
+      return await this.read(sku);
+    } catch (error) {
+      // A SKU nobody has sent yet is an ordinary answer, not a failure: the
+      // visualiser distinguishes 404 from a real error, so keep the status.
+      if (isRecordNotFound(error)) {
+        throw new NotFoundException({
+          message: `Business Central has not sent anything about ${sku} yet`,
+          code: HttpCodeStockException.STOCK_PRODUCT_NOT_FOUND,
+        });
+      }
+
+      const errorMessage = `[${StockReadService.name}]Reading stock for ${sku} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async read(sku: string): Promise<ProductStockResponseDto> {
     const product = await this.productRepository.findWithStockBySku(sku);
 
     return {
@@ -58,4 +87,12 @@ export class StockReadService {
       })),
     };
   }
+}
+
+/** Prisma's "no row matched" from `findUniqueOrThrow`. */
+function isRecordNotFound(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2025'
+  );
 }

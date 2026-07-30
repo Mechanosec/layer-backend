@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { PinoLogger } from 'nestjs-pino';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
@@ -25,6 +26,7 @@ describe('HealthController (e2e)', () => {
       controllers: [HealthController],
       providers: [
         HealthService,
+        { provide: PinoLogger, useValue: { error: jest.fn() } },
         { provide: DatabaseService, useValue: { $queryRaw: queryRaw } },
         { provide: StockService, useValue: { countBlockedCalculations } },
         { provide: EcomService, useValue: { countStale } },

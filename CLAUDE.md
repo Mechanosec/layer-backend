@@ -89,6 +89,42 @@ Rules that matter:
 - Log messages are prefixed with the class name: `` `[${MyService.name}]...` ``. Services
   inject `PinoLogger` from nestjs-pino as the first constructor parameter.
 
+### Error handling
+
+Every public method of a service wraps its body:
+
+```ts
+try {
+  return await this.doTheWork();
+} catch (error) {
+  const errorMessage = `[${MyService.name}]Doing the work was failed`;
+  this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+  throw handleExceptionCode(error as Error, errorMessage);
+}
+```
+
+`handleExceptionCode` and `describeError` live in `shared/utils/utils.ts`. The helper
+turns an unknown failure into a 400 carrying the service's own message — so a Prisma
+or driver error never reaches a caller — while preserving the status **and** the
+numeric `code` of anything that is already an `HttpException`. Domain codes are
+numeric enums in `shared/constants/http-exception-code.constant.ts`, grouped per
+domain; add one only when something raises it.
+
+Where the convention deliberately does not apply, and why:
+
+| Place | Why |
+| --- | --- |
+| **Repositories** | Thin by design; the calling service owns the catch. |
+| `stock.calculate.service.ts` | Pure arithmetic — there is nothing to catch. |
+| `EcomApiService` | Must keep throwing `EcomApiUnavailableError`. Converting it to an `HttpException` would break the `instanceof` check that drives the whole degradation path. |
+| `BcEventsIngestService.ingest` | Catches and **never rethrows**: Kafka would redeliver forever. The message is parked as `FAILED` instead. |
+| `StockService.tryRecalculate` | Catches and swallows: the task is committed, so the retry worker owns the pair. Rethrowing would park a correctly applied event. |
+| Background workers (outbox drain, retry sweep) | Catch and swallow — nothing awaits them, so a throw becomes an unhandled rejection. The failure is recorded on the row instead. |
+| `HealthService` | Catches and swallows: "the database is down" is the answer the endpoint exists to give. |
+| Inside a `$transaction` callback | Must rethrow, or the transaction commits half its work. |
+
+Every one of those exceptions carries a comment saying so at the catch site.
+
 ### Module dependency direction
 
 `bc-events → stock → ecom`. Nothing points back. `ecom` owns both the calculated result

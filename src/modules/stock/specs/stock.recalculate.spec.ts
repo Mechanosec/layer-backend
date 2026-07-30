@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 
 import { DatabaseService } from '../../../shared/database/database.service';
@@ -248,10 +249,27 @@ describe(StockRecalculateService.name, () => {
   });
 
   describe('run, with an unexpected failure', () => {
-    it('should rethrow errors that are not an e-com outage', async () => {
-      const { service } = buildService({ reserved: new TypeError('boom') });
+    it('should fail the run rather than degrade, when the cause is not an e-com outage', async () => {
+      const { service, taskRepository } = buildService({
+        reserved: new TypeError('boom'),
+      });
 
-      await expect(service.run(TARGET)).rejects.toThrow('boom');
+      await expect(service.run(TARGET)).rejects.toThrow(HttpException);
+      // Not treated as a missing-reservations case: no stale result, no retry task.
+      expect(
+        taskRepository.recordUnavailableReservations,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should not leak the internal error to the caller', async () => {
+      const { service } = buildService({
+        reserved: new TypeError('column "foo" does not exist'),
+      });
+
+      // The caller gets the service's own message; the cause goes to the log.
+      await expect(service.run(TARGET)).rejects.toThrow(
+        /Recalculating 200202\/000 in CENTRAL was failed/,
+      );
     });
   });
 });

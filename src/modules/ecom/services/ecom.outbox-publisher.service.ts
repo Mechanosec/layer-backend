@@ -3,6 +3,7 @@ import { PinoLogger } from 'nestjs-pino';
 
 import { KAFKA_TOPICS } from '../../../shared/kafka/constants/kafka-topics.constant';
 import { KafkaProducerService } from '../../../shared/kafka/kafka-producer.service';
+import { describeError } from '../../../shared/utils/utils';
 import { ECOM_OUTBOX } from '../constants/ecom.constants';
 import { EcomStockOutboxRepository } from '../repositories/ecom-stock-outbox.repository';
 import { EcomStockRepository } from '../repositories/ecom-stock.repository';
@@ -60,59 +61,74 @@ export class EcomOutboxPublisherService
     this.draining = true;
 
     try {
-      const pending = await this.outboxRepository.findPending(
-        ECOM_OUTBOX.BATCH_SIZE,
+      return await this.drain();
+    } catch (error) {
+      // Same reason as above: a background sweep must not raise.
+      this.logger.error(
+        `[${EcomOutboxPublisherService.name}]Draining the outbox was failed` +
+          ` with error: ${describeError(error)}`,
       );
 
-      if (pending.length === 0) {
-        return 0;
-      }
-
-      const ids = pending.map((row) => row.id);
-
-      try {
-        await this.producer.publish(
-          KAFKA_TOPICS.ecomStock,
-          pending.map((row) => ({
-            key: `${row.sku}:${row.variantCode}`,
-            value: {
-              sku: row.sku,
-              variantCode: row.variantCode,
-              regionCode: row.regionCode,
-              quantity: row.quantity,
-              calculatedAt: row.createdAt.toISOString(),
-            } satisfies EcomStockMessage,
-          })),
-        );
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : JSON.stringify(error);
-
-        this.logger.error(
-          `[${EcomOutboxPublisherService.name}]Publishing ${pending.length} stock update(s) failed with error: ${message}`,
-        );
-        await this.outboxRepository.recordFailure(ids, message);
-
-        return 0;
-      }
-
-      const sentAt = new Date();
-      await this.outboxRepository.markSent(ids, sentAt);
-      await this.ecomStockRepository.markPublished(
-        pending.map((row) => ({
-          variantId: row.variantId,
-          regionId: row.regionId,
-        })),
-        sentAt,
-      );
-
-      this.logger.info(
-        `[${EcomOutboxPublisherService.name}]Published ${pending.length} stock update(s) to ${KAFKA_TOPICS.ecomStock}`,
-      );
-
-      return pending.length;
+      return 0;
     } finally {
       this.draining = false;
     }
+  }
+
+  private async drain(): Promise<number> {
+    const pending = await this.outboxRepository.findPending(
+      ECOM_OUTBOX.BATCH_SIZE,
+    );
+
+    if (pending.length === 0) {
+      return 0;
+    }
+
+    const ids = pending.map((row) => row.id);
+
+    try {
+      await this.producer.publish(
+        KAFKA_TOPICS.ecomStock,
+        pending.map((row) => ({
+          key: `${row.sku}:${row.variantCode}`,
+          value: {
+            sku: row.sku,
+            variantCode: row.variantCode,
+            regionCode: row.regionCode,
+            quantity: row.quantity,
+            calculatedAt: row.createdAt.toISOString(),
+          } satisfies EcomStockMessage,
+        })),
+      );
+    } catch (error) {
+      const errorMessage = `[${EcomOutboxPublisherService.name}]Publishing ${pending.length} stock update(s) was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+
+      // Swallowed on purpose: the rows stay PENDING and the next tick retries.
+      // Throwing from a background drain would only produce an unhandled
+      // rejection, since nothing awaits it.
+      await this.outboxRepository.recordFailure(
+        ids,
+        error instanceof Error ? error.message : describeError(error),
+      );
+
+      return 0;
+    }
+
+    const sentAt = new Date();
+    await this.outboxRepository.markSent(ids, sentAt);
+    await this.ecomStockRepository.markPublished(
+      pending.map((row) => ({
+        variantId: row.variantId,
+        regionId: row.regionId,
+      })),
+      sentAt,
+    );
+
+    this.logger.info(
+      `[${EcomOutboxPublisherService.name}]Published ${pending.length} stock update(s) to ${KAFKA_TOPICS.ecomStock}`,
+    );
+
+    return pending.length;
   }
 }

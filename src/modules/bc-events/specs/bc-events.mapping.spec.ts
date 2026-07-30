@@ -1,5 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { HttpException } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
 
+import { HttpCodeBcEventException } from '../../../shared/constants/http-exception-code.constant';
 import { StockService } from '../../stock/stock.service';
 import {
   ProductCatalogueCommand,
@@ -37,13 +39,32 @@ function buildService() {
     applyStock: jest.fn().mockResolvedValue([]),
   } as unknown as StockService;
 
+  const logger = { error: jest.fn() } as unknown as PinoLogger;
+
   return {
-    service: new BcEventsService(ingestService, stockService),
+    service: new BcEventsService(logger, ingestService, stockService),
     stockService,
   };
 }
 
 const META = { topic: 't', partition: 0, offset: '1' };
+
+/**
+ * The facade replaces the inner message with its own, so a rejected message is
+ * identified by its numeric code rather than by text.
+ */
+async function expectRejectionCode(
+  promise: Promise<unknown>,
+  code: HttpCodeBcEventException,
+): Promise<void> {
+  await expect(promise).rejects.toThrow(HttpException);
+
+  try {
+    await promise;
+  } catch (error) {
+    expect((error as HttpException).getResponse()).toMatchObject({ code });
+  }
+}
 
 function lastStockCommand(stockService: StockService): StockUpdateCommand {
   return (stockService.applyStock as jest.Mock).mock
@@ -237,12 +258,13 @@ describe(BcEventsService.name, () => {
     it('should reject a variant with neither warehouses nor a message warehouseCode', async () => {
       const { service } = buildService();
 
-      await expect(
+      await expectRejectionCode(
         service.ingestStock(
           { sku: '200202', variants: [{ variantCode: '000', quantity: 5 }] },
           META,
         ),
-      ).rejects.toThrow(BadRequestException);
+        HttpCodeBcEventException.BC_STOCK_LINE_WITHOUT_WAREHOUSE,
+      );
     });
 
     it('should treat null as absent and reject the line, not apply it as zero', async () => {
@@ -250,7 +272,7 @@ describe(BcEventsService.name, () => {
 
       // A producer emitting the unused field as null rather than omitting it
       // would otherwise land as an absolute 0 and wipe the warehouse.
-      await expect(
+      await expectRejectionCode(
         service.ingestStock(
           {
             sku: '200202',
@@ -259,7 +281,8 @@ describe(BcEventsService.name, () => {
           },
           META,
         ),
-      ).rejects.toThrow(/neither quantity nor quantityDelta/);
+        HttpCodeBcEventException.BC_STOCK_LINE_WITHOUT_QUANTITY,
+      );
     });
 
     it('should prefer neither when null sits next to a real delta', async () => {
@@ -300,7 +323,7 @@ describe(BcEventsService.name, () => {
     it('should reject a line carrying both an absolute quantity and a delta', async () => {
       const { service } = buildService();
 
-      await expect(
+      await expectRejectionCode(
         service.ingestStock(
           {
             sku: '200202',
@@ -309,13 +332,14 @@ describe(BcEventsService.name, () => {
           },
           META,
         ),
-      ).rejects.toThrow(/both quantity and quantityDelta/);
+        HttpCodeBcEventException.BC_STOCK_LINE_AMBIGUOUS,
+      );
     });
 
     it('should reject a variant mixing the nested and single-warehouse shapes', async () => {
       const { service } = buildService();
 
-      await expect(
+      await expectRejectionCode(
         service.ingestStock(
           {
             sku: '200202',
@@ -330,14 +354,15 @@ describe(BcEventsService.name, () => {
           },
           META,
         ),
-      ).rejects.toThrow(/both warehouses\[\] and a bare quantity/);
+        HttpCodeBcEventException.BC_STOCK_LINE_MIXED_SHAPES,
+      );
     });
 
     it('should reject a line that names a warehouse but no number at all', async () => {
       const { service } = buildService();
 
       // Applying this would silently zero a real warehouse.
-      await expect(
+      await expectRejectionCode(
         service.ingestStock(
           {
             sku: '200202',
@@ -347,7 +372,8 @@ describe(BcEventsService.name, () => {
           },
           META,
         ),
-      ).rejects.toThrow(/neither quantity nor quantityDelta/);
+        HttpCodeBcEventException.BC_STOCK_LINE_WITHOUT_QUANTITY,
+      );
     });
   });
 });

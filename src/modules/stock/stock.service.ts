@@ -3,6 +3,7 @@ import { PinoLogger } from 'nestjs-pino';
 
 import { RecalculationTaskStatus } from '../../generated/prisma/client';
 import { TransactionClient } from '../../shared/database/types/database.type';
+import { describeError, handleExceptionCode } from '../../shared/utils/utils';
 import { ProductVariantRepository } from './repositories/product-variant.repository';
 import { StockRecalculationTaskRepository } from './repositories/stock-recalculation-task.repository';
 import { ProductStockResponseDto } from './response/stock.response.dto';
@@ -42,7 +43,13 @@ export class StockService {
     command: ProductCatalogueCommand,
     tx: TransactionClient,
   ): Promise<void> {
-    await this.applyCatalogueService.apply(command, tx);
+    try {
+      await this.applyCatalogueService.apply(command, tx);
+    } catch (error) {
+      const errorMessage = `[${StockService.name}]Applying the catalogue for ${command.sku} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
   }
 
   /**
@@ -57,17 +64,23 @@ export class StockService {
     command: StockUpdateCommand,
     tx: TransactionClient,
   ): Promise<StockTarget[]> {
-    const targets = await this.applyStockService.apply(command, tx);
+    try {
+      const targets = await this.applyStockService.apply(command, tx);
 
-    for (const target of targets) {
-      await this.taskRepository.enqueue(
-        target,
-        ERecalculationReason.BcStock,
-        tx,
-      );
+      for (const target of targets) {
+        await this.taskRepository.enqueue(
+          target,
+          ERecalculationReason.BcStock,
+          tx,
+        );
+      }
+
+      return targets;
+    } catch (error) {
+      const errorMessage = `[${StockService.name}]Applying stock for ${command.sku} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
     }
-
-    return targets;
   }
 
   /**
@@ -90,11 +103,12 @@ export class StockService {
       try {
         await this.recalculateService.run(target);
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : JSON.stringify(error);
-
+        // Swallowed on purpose: the recalculation task is already committed, so
+        // the retry worker owns this pair. Rethrowing would park a BC event whose
+        // stock was applied correctly.
         this.logger.error(
-          `[${StockService.name}]Deferring calculation of ${target.sku}/${target.variantCode} in ${target.regionCode} after error: ${message}`,
+          `[${StockService.name}]Deferring calculation of ${target.sku}/${target.variantCode} in ${target.regionCode}` +
+            ` with error: ${describeError(error)}`,
         );
       }
     }
@@ -105,6 +119,19 @@ export class StockService {
    * safety buffer or shop selection changes, where no BC event will arrive.
    */
   public async recalculateVariant(
+    sku: string,
+    variantCode: string,
+  ): Promise<StockRecalculationResult[]> {
+    try {
+      return await this.runRecalculationForVariant(sku, variantCode);
+    } catch (error) {
+      const errorMessage = `[${StockService.name}]Recalculating ${sku}/${variantCode} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async runRecalculationForVariant(
     sku: string,
     variantCode: string,
   ): Promise<StockRecalculationResult[]> {

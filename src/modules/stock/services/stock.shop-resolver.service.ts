@@ -3,6 +3,10 @@ import { PinoLogger } from 'nestjs-pino';
 
 import { TransactionClient } from '../../../shared/database/types/database.type';
 import {
+  describeError,
+  handleExceptionCode,
+} from '../../../shared/utils/utils';
+import {
   DEFAULT_SAFETY_BUFFER,
   UNASSIGNED_REGION_CODE,
   UNASSIGNED_REGION_NAME,
@@ -27,6 +31,19 @@ export class StockShopResolverService {
   ) {}
 
   public async resolve(
+    shopCode: string,
+    tx: TransactionClient,
+  ): Promise<ResolvedShop> {
+    try {
+      return await this.resolveOrCreate(shopCode, tx);
+    } catch (error) {
+      const errorMessage = `[${StockShopResolverService.name}]Resolving shop ${shopCode} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
+  }
+
+  private async resolveOrCreate(
     shopCode: string,
     tx: TransactionClient,
   ): Promise<ResolvedShop> {

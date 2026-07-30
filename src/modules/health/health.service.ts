@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
+import { PinoLogger } from 'nestjs-pino';
+
 import { DatabaseService } from '../../shared/database/database.service';
+import { describeError } from '../../shared/utils/utils';
 import { EcomService } from '../ecom/ecom.service';
 import { StockService } from '../stock/stock.service';
 import { HealthResponseDto } from './response/health.response.dto';
@@ -8,6 +11,7 @@ import { HealthResponseDto } from './response/health.response.dto';
 @Injectable()
 export class HealthService {
   constructor(
+    private readonly logger: PinoLogger,
     private readonly database: DatabaseService,
     private readonly stockService: StockService,
     private readonly ecomService: EcomService,
@@ -18,7 +22,13 @@ export class HealthService {
 
     try {
       await this.database.$queryRaw`SELECT 1`;
-    } catch {
+    } catch (error) {
+      // Swallowed on purpose: an unreachable database is the answer this endpoint
+      // exists to give, not a failure to report upward.
+      this.logger.error(
+        `[${HealthService.name}]Database check was failed` +
+          ` with error: ${describeError(error)}`,
+      );
       database = 'down';
     }
 
@@ -35,10 +45,21 @@ export class HealthService {
       };
     }
 
-    const [blocked, staleQuantities] = await Promise.all([
-      this.stockService.countBlockedCalculations(),
-      this.ecomService.countStale(),
-    ]);
+    let blocked = { pending: 0, abandoned: 0 };
+    let staleQuantities = 0;
+
+    try {
+      [blocked, staleQuantities] = await Promise.all([
+        this.stockService.countBlockedCalculations(),
+        this.ecomService.countStale(),
+      ]);
+    } catch (error) {
+      // Same reason: /health must answer even when a count cannot be taken.
+      this.logger.error(
+        `[${HealthService.name}]Reading the backlog was failed` +
+          ` with error: ${describeError(error)}`,
+      );
+    }
 
     return {
       // A backlog means published numbers may be out of date, which is worth

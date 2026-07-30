@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 
 import { TransactionClient } from '../../../shared/database/types/database.type';
+import {
+  describeError,
+  handleExceptionCode,
+} from '../../../shared/utils/utils';
 import { ProductVariantRepository } from '../repositories/product-variant.repository';
 import { ProductRepository } from '../repositories/product.repository';
 import { SeasonRepository } from '../repositories/season.repository';
@@ -29,26 +33,32 @@ export class StockApplyCatalogueService {
     command: ProductCatalogueCommand,
     tx: TransactionClient,
   ): Promise<{ variantCodes: string[] }> {
-    const season = command.season
-      ? await this.seasonRepository.ensureByName(command.season, tx)
-      : undefined;
+    try {
+      const season = command.season
+        ? await this.seasonRepository.ensureByName(command.season, tx)
+        : undefined;
 
-    await this.productRepository.upsertFromCatalogue(command, season?.id, tx);
+      await this.productRepository.upsertFromCatalogue(command, season?.id, tx);
 
-    for (const descriptor of command.variants) {
-      await this.variantRepository.upsertFromCatalogue(
-        command.sku,
-        descriptor,
-        tx,
+      for (const descriptor of command.variants) {
+        await this.variantRepository.upsertFromCatalogue(
+          command.sku,
+          descriptor,
+          tx,
+        );
+      }
+
+      this.logger.info(
+        `[${StockApplyCatalogueService.name}]Catalogue for ${command.sku}: ${command.variants.length} variant(s)${season ? `, season ${season.name}` : ''}`,
       );
+
+      return {
+        variantCodes: command.variants.map((variant) => variant.variantCode),
+      };
+    } catch (error) {
+      const errorMessage = `[${StockApplyCatalogueService.name}]Applying the catalogue for ${command.sku} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
     }
-
-    this.logger.info(
-      `[${StockApplyCatalogueService.name}]Catalogue for ${command.sku}: ${command.variants.length} variant(s)${season ? `, season ${season.name}` : ''}`,
-    );
-
-    return {
-      variantCodes: command.variants.map((variant) => variant.variantCode),
-    };
   }
 }

@@ -7,6 +7,7 @@ import { BcEventType } from '../../../generated/prisma/client';
 import { DatabaseService } from '../../../shared/database/database.service';
 import { TransactionClient } from '../../../shared/database/types/database.type';
 import { KafkaMessageMeta } from '../../../shared/kafka/types/kafka.type';
+import { describeError } from '../../../shared/utils/utils';
 import { StockService } from '../../stock/stock.service';
 import { StockTarget } from '../../stock/types/stock.type';
 import { BcEventRepository } from '../repositories/bc-event.repository';
@@ -89,15 +90,15 @@ export class BcEventsIngestService {
         return applied;
       });
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : JSON.stringify(error, Object.getOwnPropertyNames(error));
+      const errorMessage = `[${BcEventsIngestService.name}]Processing the ${type} event was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
 
-      this.logger.error(
-        `[${BcEventsIngestService.name}]Processing ${type} event failed with error: ${message}`,
+      // Never rethrown: Kafka would redeliver forever. The message is parked as
+      // FAILED with its raw payload instead, so a fix can replay it.
+      await this.eventRepository.markFailed(
+        meta,
+        error instanceof Error ? error.message : describeError(error),
       );
-      await this.eventRepository.markFailed(meta, message);
 
       return EIngestOutcome.Failed;
     }

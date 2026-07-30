@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 
+import { describeError } from '../../../shared/utils/utils';
 import { RECALCULATION } from '../constants/stock.constants';
 import { StockRecalculationTaskRepository } from '../repositories/stock-recalculation-task.repository';
 import { StockRecalculateService } from './stock.recalculate.service';
@@ -84,15 +85,16 @@ export class StockRetryRecalculationService
             recovered += 1;
           }
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : JSON.stringify(error);
-
+          const errorMessage = `[${StockRetryRecalculationService.name}]Retrying ${task.sku}/${task.variantCode} in ${task.regionCode} was failed`;
           this.logger.error(
-            `[${StockRetryRecalculationService.name}]Retrying ${task.sku}/${task.variantCode} in ${task.regionCode} failed with error: ${message}`,
+            errorMessage + ` with error: ${describeError(error)}`,
           );
+          // Swallowed on purpose: this is a background sweep, and one bad pair
+          // must not stop the rest of the batch. The attempt is counted, so the
+          // pair still abandons eventually.
           await this.taskRepository.recordUnavailableReservations(
             target,
-            message,
+            error instanceof Error ? error.message : describeError(error),
             RECALCULATION.MAX_ATTEMPTS,
           );
         }

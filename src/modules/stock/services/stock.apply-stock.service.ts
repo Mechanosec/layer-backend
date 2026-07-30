@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 
 import { TransactionClient } from '../../../shared/database/types/database.type';
+import {
+  describeError,
+  handleExceptionCode,
+} from '../../../shared/utils/utils';
 import { ProductVariantRepository } from '../repositories/product-variant.repository';
 import { ProductRepository } from '../repositories/product.repository';
 import { ShopStockRepository } from '../repositories/shop-stock.repository';
@@ -38,16 +42,24 @@ export class StockApplyStockService {
     command: StockUpdateCommand,
     tx: TransactionClient,
   ): Promise<StockTarget[]> {
-    await this.productRepository.ensureExists(command.sku, tx);
+    try {
+      await this.productRepository.ensureExists(command.sku, tx);
 
-    const targets = new Map<string, StockTarget>();
+      const targets = new Map<string, StockTarget>();
 
-    for (const line of command.lines) {
-      const target = await this.applyLine(command.sku, line, tx);
-      targets.set(`${target.variantId}:${target.regionId}`, target);
+      for (const line of command.lines) {
+        const target = await this.applyLine(command.sku, line, tx);
+        targets.set(`${target.variantId}:${target.regionId}`, target);
+      }
+
+      return [...targets.values()];
+    } catch (error) {
+      const errorMessage = `[${StockApplyStockService.name}]Applying stock for ${command.sku} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      // Rethrown on purpose: the caller's transaction must roll back, and the
+      // ingest service parks the message instead of losing it.
+      throw handleExceptionCode(error as Error, errorMessage);
     }
-
-    return [...targets.values()];
   }
 
   private async applyLine(

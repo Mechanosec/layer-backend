@@ -3,6 +3,7 @@ import { Kafka, Producer, RecordMetadata } from 'kafkajs';
 import { PinoLogger } from 'nestjs-pino';
 
 import { AppConfigService } from '../config/app-config.service';
+import { describeError, handleExceptionCode } from '../utils/utils';
 import { OutgoingMessage } from './types/kafka.type';
 
 @Injectable()
@@ -39,12 +40,18 @@ export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
       return [];
     }
 
-    return this.producer.send({
-      topic,
-      messages: messages.map((message) => ({
-        key: message.key,
-        value: JSON.stringify(message.value),
-      })),
-    });
+    try {
+      return await this.producer.send({
+        topic,
+        messages: messages.map((message) => ({
+          key: message.key,
+          value: JSON.stringify(message.value),
+        })),
+      });
+    } catch (error) {
+      const errorMessage = `[${KafkaProducerService.name}]Sending ${messages.length} message(s) to ${topic} was failed`;
+      this.logger.error(errorMessage + ` with error: ${describeError(error)}`);
+      throw handleExceptionCode(error as Error, errorMessage);
+    }
   }
 }
