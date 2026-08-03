@@ -28,7 +28,7 @@ export default tseslint.config(
   {
     // Jest matchers such as `expect.objectContaining` are typed as `any`, which
     // makes the unsafe-* rules fire on ordinary assertions.
-    files: ['**/*.spec.ts', '**/*.e2e-spec.ts'],
+    files: ['**/*.spec.ts', '**/*.e2e-spec.ts', '**/*.integration-spec.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
