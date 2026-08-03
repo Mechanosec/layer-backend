@@ -29,8 +29,8 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
-  build-on-server:
-    name: Build on grazuekomapp01
+  deploy:
+    name: Deploy to grazuekomapp01
     # Manual-only: triggered via "Run workflow" by repo writers, on the branch
     # they pick in the dropdown — never for fork PRs.
     if: github.event_name == 'workflow_dispatch'
@@ -42,3 +42,19 @@ jobs:
           persist-credentials: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - name: Sync to /opt/layer-backend
+        run: rsync -a --delete --exclude .env ./ /opt/layer-backend/
+      - name: Run database migrations
+        run: |
+          set -a; . /opt/layer-backend/.env; set +a
+          cd /opt/layer-backend && npx prisma migrate deploy
+      - name: Restart services
+        run: sudo systemctl restart layer-mock-ecom layer-backend
+      - name: Health check
+        run: |
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:3000/health; then echo; echo "healthy"; exit 0; fi
+            sleep 3
+          done
+          echo "service did not become healthy"; sudo journalctl -u layer-backend -n 50 --no-pager
+          exit 1
