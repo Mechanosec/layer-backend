@@ -28,6 +28,11 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm test
+      # Deploy runs only after the pipeline has been proven against a real
+      # Postgres (Testcontainers uses the runner's Docker daemon).
+      - name: Integration tests
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm test:integration
 
   deploy:
     name: Deploy to grazuekomapp01

@@ -2,6 +2,11 @@ allowBuilds:
   '@prisma/engines': true
   # Analytics-only postinstall — deliberately not run.
   '@scarf/scarf': false
+  # Optional native bindings pulled in by testcontainers via ssh2 — the library
+  # falls back to pure JS when the build is unavailable, so allowing is safe.
+  cpu-features: true
   esbuild: true
   prisma: true
+  protobufjs: true
+  ssh2: true
   unrs-resolver: true
