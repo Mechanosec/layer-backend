@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,8 +31,9 @@ jobs:
 
   build-on-server:
     name: Build on grazuekomapp01
-    # Runs only for commits pushed to main by repo writers — never for fork PRs.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Manual-only: triggered via "Run workflow" by repo writers, on the branch
+    # they pick in the dropdown — never for fork PRs.
+    if: github.event_name == 'workflow_dispatch'
     needs: ci
     runs-on: [self-hosted, deploy]
     steps:
