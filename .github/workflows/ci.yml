@@ -45,21 +45,28 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+      # Only for prisma migrate; the app itself is built inside the image.
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - name: Sync to /opt/layer-backend
+      - name: Build image
+        run: docker build -t layer-backend:${{ github.sha }} -t layer-backend:latest .
+      - name: Sync compose file and config to /opt/layer-backend
         run: rsync -a --delete --exclude .env ./ /opt/layer-backend/
       - name: Run database migrations
         run: |
           set -a; . /opt/layer-backend/.env; set +a
-          cd /opt/layer-backend && npx prisma migrate deploy
-      - name: Restart services
-        run: sudo systemctl restart layer-mock-ecom layer-backend
+          npx prisma migrate deploy
+      # One-time cutover from the native systemd services; a no-op afterwards.
+      - name: Stop native services if still enabled
+        run: sudo systemctl disable --now layer-backend layer-mock-ecom 2>/dev/null || true
+      - name: Start containers
+        working-directory: /opt/layer-backend
+        run: TAG=${{ github.sha }} docker compose -f docker-compose.prod.yml up -d
       - name: Health check
         run: |
           for i in $(seq 1 20); do
             if curl -sf http://localhost:3000/health; then echo; echo "healthy"; exit 0; fi
             sleep 3
           done
-          echo "service did not become healthy"; sudo journalctl -u layer-backend -n 50 --no-pager
+          echo "service did not become healthy"
+          docker compose -f /opt/layer-backend/docker-compose.prod.yml logs --tail 50 app
           exit 1
