@@ -1,0 +1,26 @@
+# Production stand on grazuekomapp01. The image is built on the self-hosted
+# runner by the deploy job (no registry); TAG is the commit SHA, so a rollback
+# is `TAG=<old-sha> docker compose -f docker-compose.prod.yml up -d`.
+#
+# nginx on the host keeps proxying :80 → 127.0.0.1:3000 unchanged.
+services:
+  app:
+    image: layer-backend:${TAG:-latest}
+    env_file: .env
+    environment:
+      # Inside the compose network "localhost" would be the container itself;
+      # override the host-oriented value from .env with the service name.
+      ECOM_API_URL: http://mock-ecom:4000
+    ports:
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      - mock-ecom
+    restart: unless-stopped
+
+  mock-ecom:
+    image: layer-backend:${TAG:-latest}
+    command: ['node', 'tools/mock-ecom.mjs']
+    ports:
+      # On the host loopback only, so its /_state can still be poked over SSH.
+      - '127.0.0.1:4000:4000'
+    restart: unless-stopped
